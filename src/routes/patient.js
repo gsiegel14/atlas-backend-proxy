@@ -32,13 +32,15 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
     logger.info('Fetching patient dashboard', {
       patientId,
       user: req.user.sub,
+      username: req.context?.username,
       correlationId: req.correlationId
     });
 
     // Call Foundry action to get patient dashboard
     const dashboardData = await foundryService.invokeAction('getPatientDashboard', {
       patientId,
-      userId: req.user.sub
+      userId: req.user.sub,
+      username: req.context?.username
     });
 
     res.json({
@@ -78,6 +80,7 @@ router.get('/health-records', validateTokenWithScopes(['read:health_records']), 
       patientId,
       recordType,
       user: req.user.sub,
+      username: req.context?.username,
       correlationId: req.correlationId
     });
 
@@ -86,7 +89,8 @@ router.get('/health-records', validateTokenWithScopes(['read:health_records']), 
       recordType,
       limit: parseInt(limit),
       offset: parseInt(offset),
-      userId: req.user.sub
+      userId: req.user.sub,
+      username: req.context?.username
     });
 
     res.json({
@@ -131,12 +135,14 @@ router.post('/:patientId/documents', validateTokenWithScopes(['write:documents']
       patientId,
       documentType: documentData.type,
       user: req.user.sub,
+      username: req.context?.username,
       correlationId: req.correlationId
     });
 
     const result = await foundryService.uploadDocument(patientId, {
       ...documentData,
       userId: req.user.sub,
+      username: req.context?.username,
       uploadedAt: new Date().toISOString()
     });
 

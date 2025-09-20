@@ -47,6 +47,7 @@ router.post('/actions/:actionId/invoke', validateTokenWithScopes(['execute:actio
     logger.info('Invoking Foundry action', {
       actionId,
       user: req.user.sub,
+      username: req.context?.username,
       correlationId: req.correlationId,
       parametersCount: Object.keys(parameters).length
     });
@@ -55,6 +56,7 @@ router.post('/actions/:actionId/invoke', validateTokenWithScopes(['execute:actio
     const enhancedParameters = {
       ...parameters,
       userId: req.user.sub,
+      username: req.context?.username,
       requestTimestamp: new Date().toISOString(),
       correlationId: req.correlationId
     };

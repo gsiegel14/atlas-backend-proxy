@@ -17,6 +17,8 @@ import { FoundryService } from './services/foundryService.js';
 import { healthRouter } from './routes/health.js';
 import { patientRouter } from './routes/patient.js';
 import { foundryRouter } from './routes/foundry.js';
+import { debugRouter } from './routes/debug.js';
+import { usernamePropagation } from './middleware/usernamePropagation.js';
 
 dotenv.config();
 
@@ -59,7 +61,9 @@ app.use(helmet({
 
 app.use(cors({
   origin: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
-  credentials: true
+  credentials: true,
+  allowedHeaders: ['Authorization', 'Content-Type', 'X-Auth0-Username', 'X-Correlation-Id'],
+  exposedHeaders: ['X-Correlation-Id']
 }));
 
 app.use(morgan('combined', { stream: { write: message => logger.info(message.trim()) } }));
@@ -77,7 +81,10 @@ app.use(globalRateLimit);
 app.use('/health', healthRouter);
 
 // Auth0 validation for protected routes
-app.use('/api', validateAuth0Token);
+app.use('/api', validateAuth0Token, usernamePropagation);
+
+// Debug endpoints (protected)
+app.use('/api/v1/debug', debugRouter);
 
 // API Routes with specific rate limits
 app.use('/api/v1/patient', createRateLimiter(100, redisClient), patientRouter);
