@@ -1,0 +1,18 @@
+# Node
+node_modules/
+
+# Env files
+.env
+.env.*
+!env.template
+!env.test
+
+# Logs
+logs/
+*.log
+
+# Coverage
+coverage/
+
+# macOS
+.DS_Store
