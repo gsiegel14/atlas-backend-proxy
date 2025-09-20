@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: atlas-backend-proxy
+    runtime: node
+    plan: starter
+    region: oregon
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: LOG_LEVEL
+        value: info
+      - key: AUTH0_DOMAIN
+        value: dev-irxmxjwyduu4tesn.us.auth0.com
+      - key: AUTH0_AUDIENCE
+        value: https://api.atlas.ai
+      - key: FOUNDRY_HOST
+        value: https://atlasengine.palantirfoundry.com
+      - key: REDIS_URL
+        value: redis://red-d37dftre5dus7399gebg:6379
+      - key: CORS_ORIGINS
+        value: "https://atlas.ai,https://app.atlas.ai,http://localhost:3000"
+    disk:
+      name: atlas-backend-proxy-disk
+      mountPath: /opt/render/project/logs
+      sizeGB: 1
+
+databases:
+  - name: atlas-backend-redis
+    type: redis
+    plan: starter
+    region: oregon
+    ipAllowList: []
