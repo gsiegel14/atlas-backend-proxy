@@ -23,65 +23,63 @@ const jwksClient = jwksRsa({
 // Get signing key function with proper error handling
 const getKey = (header, callback) => {
   try {
-    // Handle case where KID is not specified - try first available key
-    const kidToUse = header.kid || null;
-    
-    if (!kidToUse) {
-      logger.warn('No KID specified in JWT header, attempting to use first available key');
-      // Get all keys and use the first one
-      jwksClient.getKeys((err, keys) => {
+    // If KID is specified, use it directly
+    if (header.kid) {
+      jwksClient.getSigningKey(header.kid, (err, key) => {
         if (err) {
-          logger.error('Failed to get JWKS keys:', err.message);
+          logger.error('Failed to get signing key:', {
+            error: err.message,
+            kid: header.kid,
+            jwksUri: `https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`
+          });
           return callback(err);
         }
         
-        if (!keys || keys.length === 0) {
-          const error = new Error('No keys available in JWKS');
+        if (!key) {
+          const error = new Error('No signing key found');
           logger.error('JWT validation error:', error.message);
           return callback(error);
         }
         
-        // Use the first key when no KID is specified
-        const firstKey = keys[0];
-        const signingKey = firstKey.publicKey || firstKey.rsaPublicKey;
+        const signingKey = key.publicKey || key.rsaPublicKey;
         if (!signingKey) {
-          const error = new Error('No valid signing key found in first JWKS key');
+          const error = new Error('No valid signing key found in JWKS response');
           logger.error('JWT validation error:', error.message);
           return callback(error);
         }
         
-        logger.debug('Using first available JWKS key (no KID specified)', { 
-          keyId: firstKey.kid || 'unknown' 
-        });
+        logger.debug('Successfully retrieved signing key', { kid: header.kid });
         callback(null, signingKey);
       });
       return;
     }
 
-    jwksClient.getSigningKey(kidToUse, (err, key) => {
+    // If no KID specified, get all signing keys and use the first one
+    logger.warn('No KID specified in JWT header, using first available signing key');
+    jwksClient.getSigningKeys((err, keys) => {
       if (err) {
-        logger.error('Failed to get signing key:', {
-          error: err.message,
-          kid: kidToUse,
-          jwksUri: `https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`
-        });
+        logger.error('Failed to get signing keys:', err.message);
         return callback(err);
       }
       
-      if (!key) {
-        const error = new Error('No signing key found');
+      if (!keys || keys.length === 0) {
+        const error = new Error('No signing keys available in JWKS');
         logger.error('JWT validation error:', error.message);
         return callback(error);
       }
       
-      const signingKey = key.publicKey || key.rsaPublicKey;
+      // Use the first signing key
+      const firstKey = keys[0];
+      const signingKey = firstKey.publicKey || firstKey.rsaPublicKey;
       if (!signingKey) {
-        const error = new Error('No valid signing key found in JWKS response');
+        const error = new Error('No valid public key found in first signing key');
         logger.error('JWT validation error:', error.message);
         return callback(error);
       }
       
-      logger.debug('Successfully retrieved signing key', { kid: kidToUse });
+      logger.debug('Using first available signing key (no KID specified)', { 
+        keyId: firstKey.kid || 'unknown' 
+      });
       callback(null, signingKey);
     });
   } catch (error) {
