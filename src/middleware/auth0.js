@@ -2,90 +2,18 @@ import { expressjwt as jwt } from 'express-jwt';
 import jwksRsa from 'jwks-rsa';
 import { logger } from '../utils/logger.js';
 
-// JWKS client for Auth0 token validation
-const jwksClient = jwksRsa({
+// Official jwks-rsa integration compatible with express-jwt
+const jwksSecret = jwksRsa.expressJwtSecret({
   cache: true,
   cacheMaxEntries: 5,
-  cacheMaxAge: 600000, // 10 minutes
   rateLimit: true,
   jwksRequestsPerMinute: 10,
-  jwksUri: `https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`,
-  strictSsl: true,
-  timeout: 30000
+  jwksUri: `https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`
 });
-
-// express-jwt v8 expects an async secret resolver: (req, token) => Promise<string | Buffer>
-const getSecret = async (req, token) => {
-  try {
-    // Prefer kid from express-jwt token; fallback to decoding Authorization header if missing
-    let kid = token?.header?.kid;
-    let alg = token?.header?.alg;
-    let iss;
-    let aud;
-    if (!kid || !alg) {
-      const auth = req.get('Authorization') || '';
-      const jwt = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-      const parts = jwt.split('.');
-      if (parts.length === 3) {
-        const b64 = (s) => Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(s.length + (4 - s.length % 4) % 4, '='), 'base64').toString('utf8');
-        try {
-          const h = JSON.parse(b64(parts[0]));
-          const p = JSON.parse(b64(parts[1]));
-          kid = kid || h?.kid;
-          alg = alg || h?.alg;
-          iss = p?.iss;
-          aud = p?.aud;
-        } catch {}
-      }
-    }
-    if (!kid) {
-      const error = new Error('Missing kid in JWT header');
-      logger.error('JWT validation error:', {
-        error: error.message,
-        header: token?.header,
-      });
-      throw error;
-    }
-
-    // Minimal diagnostics (no PII)
-    logger.debug('JWT header diagnostics', {
-      kid,
-      alg,
-      iss,
-      aud
-    });
-
-    const key = await jwksClient.getSigningKey(kid);
-    const signingKey =
-      (typeof key.getPublicKey === 'function' && key.getPublicKey()) ||
-      key.publicKey ||
-      key.rsaPublicKey;
-
-    if (!signingKey) {
-      const error = new Error('No valid signing key found in JWKS response');
-      logger.error('JWT validation error:', {
-        error: error.message,
-        kid,
-        jwksUri: `https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`
-      });
-      throw error;
-    }
-
-    logger.debug('Successfully resolved signing key', { kid });
-    return signingKey;
-  } catch (err) {
-    logger.error('Failed to resolve signing key:', {
-      error: err.message,
-      kid: token?.header?.kid,
-      jwksUri: `https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`
-    });
-    throw err;
-  }
-};
 
 // Auth0 JWT validation middleware
 export const validateAuth0Token = jwt({
-  secret: getSecret,
+  secret: jwksSecret,
   audience: process.env.AUTH0_AUDIENCE || 'https://api.atlas.ai',
   issuer: `https://${process.env.AUTH0_DOMAIN}/`,
   algorithms: ['RS256'],
