@@ -17,7 +17,27 @@ const jwksClient = jwksRsa({
 // express-jwt v8 expects an async secret resolver: (req, token) => Promise<string | Buffer>
 const getSecret = async (req, token) => {
   try {
-    const kid = token?.header?.kid;
+    // Prefer kid from express-jwt token; fallback to decoding Authorization header if missing
+    let kid = token?.header?.kid;
+    let alg = token?.header?.alg;
+    let iss;
+    let aud;
+    if (!kid || !alg) {
+      const auth = req.get('Authorization') || '';
+      const jwt = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+      const parts = jwt.split('.');
+      if (parts.length === 3) {
+        const b64 = (s) => Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(s.length + (4 - s.length % 4) % 4, '='), 'base64').toString('utf8');
+        try {
+          const h = JSON.parse(b64(parts[0]));
+          const p = JSON.parse(b64(parts[1]));
+          kid = kid || h?.kid;
+          alg = alg || h?.alg;
+          iss = p?.iss;
+          aud = p?.aud;
+        } catch {}
+      }
+    }
     if (!kid) {
       const error = new Error('Missing kid in JWT header');
       logger.error('JWT validation error:', {
@@ -26,6 +46,14 @@ const getSecret = async (req, token) => {
       });
       throw error;
     }
+
+    // Minimal diagnostics (no PII)
+    logger.debug('JWT header diagnostics', {
+      kid,
+      alg,
+      iss,
+      aud
+    });
 
     const key = await jwksClient.getSigningKey(kid);
     const signingKey =
