@@ -2,12 +2,7 @@ import { expressjwt as jwt } from 'express-jwt';
 import jwksRsa from 'jwks-rsa';
 import { logger } from '../utils/logger.js';
 
-// Validate required environment variables
-if (!process.env.AUTH0_DOMAIN) {
-  throw new Error('AUTH0_DOMAIN environment variable is required');
-}
-
-// JWKS client for Auth0 token validation - simplified approach
+// JWKS client for Auth0 token validation
 const jwksClient = jwksRsa({
   cache: true,
   cacheMaxEntries: 5,
@@ -19,79 +14,54 @@ const jwksClient = jwksRsa({
   timeout: 30000
 });
 
-// Get signing key function - use first key when no KID specified
-const getKey = (header, callback) => {
-  // Try to get the signing key with the provided KID, or fallback to first key
-  const kidToUse = header.kid;
-  
-  jwksClient.getSigningKey(kidToUse, (err, key) => {
-    // If error is due to missing KID and multiple keys, try first key
-    if (err && err.name === 'SigningKeyNotFoundError' && err.message.includes('No KID specified')) {
-      logger.warn('No KID specified, attempting fallback to first available key');
-      
-      // Try with undefined to get first available key
-      jwksClient.getSigningKey(undefined, (fallbackErr, fallbackKey) => {
-        if (fallbackErr) {
-          logger.error('Fallback signing key retrieval failed:', fallbackErr.message);
-          return callback(fallbackErr);
-        }
-        
-        const signingKey = fallbackKey.publicKey || fallbackKey.rsaPublicKey;
-        if (!signingKey) {
-          const error = new Error('No valid signing key found in fallback key');
-          logger.error('JWT validation error:', error.message);
-          return callback(error);
-        }
-        
-        logger.debug('Successfully retrieved fallback signing key');
-        callback(null, signingKey);
+// express-jwt v8 expects an async secret resolver: (req, token) => Promise<string | Buffer>
+const getSecret = async (req, token) => {
+  try {
+    const kid = token?.header?.kid;
+    if (!kid) {
+      const error = new Error('Missing kid in JWT header');
+      logger.error('JWT validation error:', {
+        error: error.message,
+        header: token?.header,
       });
-      return;
+      throw error;
     }
-    
-    // Handle other errors normally
-    if (err) {
-      logger.error('Failed to get signing key:', {
-        error: err.message,
-        kid: kidToUse,
-        jwksUri: `https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`
-      });
-      return callback(err);
-    }
-    
-    const signingKey = key.publicKey || key.rsaPublicKey;
+
+    const key = await jwksClient.getSigningKey(kid);
+    const signingKey =
+      (typeof key.getPublicKey === 'function' && key.getPublicKey()) ||
+      key.publicKey ||
+      key.rsaPublicKey;
+
     if (!signingKey) {
       const error = new Error('No valid signing key found in JWKS response');
-      logger.error('JWT validation error:', error.message);
-      return callback(error);
+      logger.error('JWT validation error:', {
+        error: error.message,
+        kid,
+        jwksUri: `https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`
+      });
+      throw error;
     }
-    
-    logger.debug('Successfully retrieved signing key', { kid: kidToUse });
-    callback(null, signingKey);
-  });
+
+    logger.debug('Successfully resolved signing key', { kid });
+    return signingKey;
+  } catch (err) {
+    logger.error('Failed to resolve signing key:', {
+      error: err.message,
+      kid: token?.header?.kid,
+      jwksUri: `https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`
+    });
+    throw err;
+  }
 };
 
-// Auth0 JWT validation middleware with improved configuration
+// Auth0 JWT validation middleware
 export const validateAuth0Token = jwt({
-  secret: getKey,
+  secret: getSecret,
   audience: process.env.AUTH0_AUDIENCE || 'https://api.atlas.ai',
   issuer: `https://${process.env.AUTH0_DOMAIN}/`,
   algorithms: ['RS256'],
-  requestProperty: 'user',
-  // Require KID in header to handle multiple keys
-  getToken: (req) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
-      return null;
-    }
-    
-    const parts = authHeader.split(' ');
-    if (parts.length !== 2 || parts[0] !== 'Bearer') {
-      return null;
-    }
-    
-    return parts[1];
-  }
+  requestProperty: 'user'
 }).unless({
   path: ['/health', '/health/ready', '/health/live']
 });
@@ -156,86 +126,25 @@ export const validateTokenWithScopes = (requiredScopes = []) => {
   };
 };
 
-// Enhanced error handler for JWT middleware
+// Error handler for JWT middleware
 export const jwtErrorHandler = (err, req, res, next) => {
-  // Prevent uncaught exceptions from crashing the service
-  try {
-    if (err.name === 'UnauthorizedError') {
-      logger.warn('JWT validation failed:', {
-        error: err.message,
-        correlationId: req.correlationId || 'unknown',
-        userAgent: req.get('User-Agent'),
-        ip: req.ip,
-        path: req.path,
-        method: req.method
-      });
-
-      return res.status(401).json({
-        error: {
-          code: 'INVALID_TOKEN',
-          message: 'Invalid or malformed token',
-          details: process.env.NODE_ENV === 'development' ? err.message : undefined,
-          correlationId: req.correlationId || 'unknown',
-          timestamp: new Date().toISOString()
-        }
-      });
-    }
-
-    // Handle JWKS-related errors specifically
-    if (err.name === 'SigningKeyNotFoundError') {
-      logger.error('JWKS signing key error:', {
-        error: err.message,
-        correlationId: req.correlationId || 'unknown',
-        jwksUri: `https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`
-      });
-
-      return res.status(401).json({
-        error: {
-          code: 'SIGNING_KEY_ERROR',
-          message: 'Unable to verify token signature',
-          correlationId: req.correlationId || 'unknown',
-          timestamp: new Date().toISOString()
-        }
-      });
-    }
-
-    // Handle other authentication-related errors
-    if (err.message && err.message.includes('secret or public key must be provided')) {
-      logger.error('JWT secret configuration error:', {
-        error: err.message,
-        correlationId: req.correlationId || 'unknown'
-      });
-
-      return res.status(500).json({
-        error: {
-          code: 'CONFIGURATION_ERROR',
-          message: 'Authentication service configuration error',
-          correlationId: req.correlationId || 'unknown',
-          timestamp: new Date().toISOString()
-        }
-      });
-    }
-    
-    // Log and pass through other errors
-    logger.error('Unhandled authentication error:', {
-      name: err.name,
-      message: err.message,
-      correlationId: req.correlationId || 'unknown',
-      stack: err.stack
+  if (err.name === 'UnauthorizedError') {
+    logger.warn('JWT validation failed:', {
+      error: err.message,
+      correlationId: req.correlationId,
+      userAgent: req.get('User-Agent'),
+      ip: req.ip
     });
-    
-    next(err);
-  } catch (handlerError) {
-    // Prevent error handler from crashing
-    logger.error('Error in JWT error handler:', handlerError);
-    
-    return res.status(500).json({
+
+    return res.status(401).json({
       error: {
-        code: 'INTERNAL_ERROR',
-        message: 'Internal authentication error',
-        correlationId: req.correlationId || 'unknown',
+        code: 'INVALID_TOKEN',
+        message: 'Invalid or malformed token',
+        correlationId: req.correlationId,
         timestamp: new Date().toISOString()
       }
     });
   }
+  
+  next(err);
 };
