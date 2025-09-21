@@ -9,7 +9,7 @@ import dotenv from 'dotenv';
 import { v4 as uuidv4 } from 'uuid';
 
 import { logger } from './utils/logger.js';
-import { validateAuth0Token } from './middleware/auth0.js';
+import { validateAuth0Token, jwtErrorHandler } from './middleware/auth0.js';
 import { createRateLimiter } from './middleware/rateLimiter.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { correlationId } from './middleware/correlationId.js';
@@ -90,7 +90,10 @@ app.use('/api/v1/debug', debugRouter);
 app.use('/api/v1/patient', createRateLimiter(100, redisClient), patientRouter);
 app.use('/api/v1/foundry', createRateLimiter(50, redisClient), foundryRouter);
 
-// Error handling
+// JWT-specific error handling (must come before general error handler)
+app.use(jwtErrorHandler);
+
+// General error handling
 app.use(errorHandler);
 
 // 404 handler
@@ -103,6 +106,31 @@ app.use('*', (req, res) => {
       timestamp: new Date().toISOString()
     }
   });
+});
+
+// Error handling for uncaught exceptions and unhandled promise rejections
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught Exception:', {
+    error: error.message,
+    stack: error.stack,
+    timestamp: new Date().toISOString()
+  });
+  
+  // Give time for logs to flush, then exit
+  setTimeout(() => {
+    process.exit(1);
+  }, 1000);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled Rejection at:', {
+    promise: promise,
+    reason: reason,
+    timestamp: new Date().toISOString()
+  });
+  
+  // Don't exit immediately for unhandled rejections in production
+  // Log and continue, but monitor these closely
 });
 
 // Graceful shutdown

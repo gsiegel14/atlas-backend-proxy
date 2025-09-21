@@ -174,18 +174,23 @@ export class FoundryService {
       parameters
     });
   }
-  
+
   async executeQuery(query, parameters = {}) {
     return this.apiCall('POST', '/api/v1/datasets/query', {
       query,
       parameters
     });
   }
-  
+
+  async searchOntologyObjects(ontologyId, objectTypePath, payload = {}) {
+    const endpoint = `/api/v1/ontologies/${ontologyId}/objects/${objectTypePath}/search`;
+    return this.apiCall('POST', endpoint, payload);
+  }
+
   async getPatientDashboard(patientId) {
     return this.apiCall('GET', `/api/v1/patient/${patientId}/dashboard`);
   }
-  
+
   async uploadDocument(patientId, documentData) {
     return this.apiCall('POST', `/api/v1/patient/${patientId}/documents`, documentData);
   }

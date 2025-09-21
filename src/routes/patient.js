@@ -1,6 +1,8 @@
 import express from 'express';
 import { validateTokenWithScopes } from '../middleware/auth0.js';
 import { FoundryService } from '../services/foundryService.js';
+import { A } from '@atlas-dev/sdk';
+import { client as osdkClient, osdkHost, osdkOntologyRid } from '../osdk/client.js';
 import { logger } from '../utils/logger.js';
 
 const router = express.Router();
@@ -52,6 +54,148 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
 
   } catch (error) {
     logger.error('Failed to fetch patient dashboard:', {
+      error: error.message,
+      user: req.user.sub,
+      correlationId: req.correlationId
+    });
+    next(error);
+  }
+});
+
+// Search patient profile via Ontology object search (OSDK client; no SQL)
+router.post('/profile/search', validateTokenWithScopes(['read:patient']), async (req, res, next) => {
+  try {
+    const {
+      value,
+      fieldCandidates = [],
+      limit = 10,
+      ontologyIds = [],
+      objectTypePath = 'A'
+    } = req.body;
+
+    if (!value) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'value is required',
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    if (objectTypePath !== 'A') {
+      return res.status(400).json({
+        error: {
+          code: 'UNSUPPORTED_OBJECT_TYPE',
+          message: `Object type '${objectTypePath}' is not supported by the proxy`,
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    const candidates = Array.isArray(fieldCandidates) && fieldCandidates.length > 0
+      ? fieldCandidates
+      : ['user_id', 'userId', 'patientId'];
+
+    const ontologies = Array.isArray(ontologyIds) && ontologyIds.length > 0
+      ? ontologyIds
+      : [process.env.PATIENT_PROFILE_ONTOLOGY_ID].filter(Boolean);
+
+    if (ontologies.length === 0) {
+      return res.status(500).json({
+        error: {
+          code: 'MISSING_ONTOLOGY_ID',
+          message: 'No ontology identifiers provided',
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    const pageSize = Math.max(Math.min(parseInt(limit, 10) || 1, 100), 1);
+    const defaultOntologyId = ontologies.find(id => !id || id === osdkOntologyRid) ?? osdkOntologyRid;
+    let lastResponse = { objects: [] };
+    let lastOntologyId = defaultOntologyId;
+
+    for (const ontologyId of ontologies) {
+      if (ontologyId && ontologyId !== osdkOntologyRid) {
+        logger.warn('Skipping ontologyId not supported by OSDK client', {
+          ontologyId,
+          supportedOntologyId: osdkOntologyRid,
+          correlationId: req.correlationId
+        });
+        continue;
+      }
+
+      const effectiveOntologyId = ontologyId || osdkOntologyRid;
+
+      for (const field of candidates) {
+        const filter = { [field]: { $eq: value } };
+
+        try {
+          const objectSet = osdkClient(A).where(filter);
+          const page = await objectSet.fetchPage({ $pageSize: pageSize });
+          const objects = page.data.map(record => {
+            const properties = JSON.parse(JSON.stringify(record));
+            const rid = properties.$primaryKey ?? properties.$rid ?? properties.rid ?? properties.id ?? null;
+            return {
+              rid,
+              properties,
+              ontologyId: effectiveOntologyId,
+              sourceURL: `${osdkHost}/api/v2/ontologies/${effectiveOntologyId}/objects/${objectTypePath}/search`,
+              httpStatus: 200
+            };
+          });
+
+          const response = { objects };
+
+          if (objects.length > 0) {
+            logger.info('OSDK ontology search returned objects', {
+              ontologyId: effectiveOntologyId,
+              field,
+              count: objects.length,
+              correlationId: req.correlationId
+            });
+
+            return res.json({
+              success: true,
+              data: {
+                ontologyId: effectiveOntologyId,
+                requestUrl: `${osdkHost}/api/v2/ontologies/${effectiveOntologyId}/objects/${objectTypePath}/search`,
+                response
+              },
+              timestamp: new Date().toISOString(),
+              correlationId: req.correlationId
+            });
+          }
+
+          lastResponse = response;
+          lastOntologyId = effectiveOntologyId;
+        } catch (error) {
+          logger.warn('OSDK ontology search attempt failed', {
+            ontologyId: effectiveOntologyId,
+            field,
+            error: error.message,
+            correlationId: req.correlationId
+          });
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        ontologyId: lastOntologyId,
+        requestUrl: `${osdkHost}/api/v2/ontologies/${lastOntologyId}/objects/${objectTypePath}/search`,
+        response: lastResponse
+      },
+      timestamp: new Date().toISOString(),
+      correlationId: req.correlationId
+    });
+  } catch (error) {
+    logger.error('Failed to execute patient profile search via OSDK', {
       error: error.message,
       user: req.user.sub,
       correlationId: req.correlationId
