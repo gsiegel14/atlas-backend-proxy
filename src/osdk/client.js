@@ -1,13 +1,17 @@
 import dotenv from 'dotenv';
 import { createClient as createOSDKClient } from '@osdk/client';
 import { createConfidentialOauthClient } from '@osdk/oauth';
-import { $ontologyRid } from '@atlas-dev/sdk';
 
 dotenv.config();
 
 const DEFAULT_HOST = 'https://atlasengine.palantirfoundry.com';
 const host = process.env.FOUNDRY_HOST ?? DEFAULT_HOST;
-const ontologyRid = process.env.FOUNDRY_ONTOLOGY_RID ?? $ontologyRid;
+
+// Ontology RID must be provided via environment variable
+const ontologyRid = process.env.FOUNDRY_ONTOLOGY_RID;
+if (!ontologyRid) {
+    throw new Error('FOUNDRY_ONTOLOGY_RID environment variable is required');
+}
 
 const DEFAULT_SCOPES = [
     'api:use-ontologies-read',

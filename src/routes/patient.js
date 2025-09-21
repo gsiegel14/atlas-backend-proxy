@@ -1,9 +1,13 @@
 import express from 'express';
 import { validateTokenWithScopes } from '../middleware/auth0.js';
 import { FoundryService } from '../services/foundryService.js';
-import { A } from '@atlas-dev/sdk';
 import { client as osdkClient, osdkHost, osdkOntologyRid } from '../osdk/client.js';
 import { logger } from '../utils/logger.js';
+
+// Object type definition for OSDK queries
+// This replaces the 'A' import from @atlas-dev/sdk
+// The actual object type API name should be provided via environment variable
+const OBJECT_TYPE_API_NAME = process.env.FOUNDRY_OBJECT_TYPE_API_NAME || 'A';
 
 const router = express.Router();
 
@@ -135,7 +139,7 @@ router.post('/profile/search', validateTokenWithScopes(['read:patient']), async 
         const filter = { [field]: { $eq: value } };
 
         try {
-          const objectSet = osdkClient(A).where(filter);
+          const objectSet = osdkClient(OBJECT_TYPE_API_NAME).where(filter);
           const page = await objectSet.fetchPage({ $pageSize: pageSize });
           const objects = page.data.map(record => {
             const properties = JSON.parse(JSON.stringify(record));
