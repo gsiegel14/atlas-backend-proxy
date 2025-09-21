@@ -7,7 +7,7 @@ if (!process.env.AUTH0_DOMAIN) {
   throw new Error('AUTH0_DOMAIN environment variable is required');
 }
 
-// JWKS client for Auth0 token validation
+// JWKS client for Auth0 token validation - simplified approach
 const jwksClient = jwksRsa({
   cache: true,
   cacheMaxEntries: 5,
@@ -15,77 +15,60 @@ const jwksClient = jwksRsa({
   rateLimit: true,
   jwksRequestsPerMinute: 10,
   jwksUri: `https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`,
-  // Handle multiple keys by requiring KID
   strictSsl: true,
   timeout: 30000
 });
 
-// Get signing key function with proper error handling
+// Get signing key function - use first key when no KID specified
 const getKey = (header, callback) => {
-  try {
-    // If KID is specified, use it directly
-    if (header.kid) {
-      jwksClient.getSigningKey(header.kid, (err, key) => {
-        if (err) {
-          logger.error('Failed to get signing key:', {
-            error: err.message,
-            kid: header.kid,
-            jwksUri: `https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`
-          });
-          return callback(err);
+  // Try to get the signing key with the provided KID, or fallback to first key
+  const kidToUse = header.kid;
+  
+  jwksClient.getSigningKey(kidToUse, (err, key) => {
+    // If error is due to missing KID and multiple keys, try first key
+    if (err && err.name === 'SigningKeyNotFoundError' && err.message.includes('No KID specified')) {
+      logger.warn('No KID specified, attempting fallback to first available key');
+      
+      // Try with undefined to get first available key
+      jwksClient.getSigningKey(undefined, (fallbackErr, fallbackKey) => {
+        if (fallbackErr) {
+          logger.error('Fallback signing key retrieval failed:', fallbackErr.message);
+          return callback(fallbackErr);
         }
         
-        if (!key) {
-          const error = new Error('No signing key found');
-          logger.error('JWT validation error:', error.message);
-          return callback(error);
-        }
-        
-        const signingKey = key.publicKey || key.rsaPublicKey;
+        const signingKey = fallbackKey.publicKey || fallbackKey.rsaPublicKey;
         if (!signingKey) {
-          const error = new Error('No valid signing key found in JWKS response');
+          const error = new Error('No valid signing key found in fallback key');
           logger.error('JWT validation error:', error.message);
           return callback(error);
         }
         
-        logger.debug('Successfully retrieved signing key', { kid: header.kid });
+        logger.debug('Successfully retrieved fallback signing key');
         callback(null, signingKey);
       });
       return;
     }
-
-    // If no KID specified, get all signing keys and use the first one
-    logger.warn('No KID specified in JWT header, using first available signing key');
-    jwksClient.getSigningKeys((err, keys) => {
-      if (err) {
-        logger.error('Failed to get signing keys:', err.message);
-        return callback(err);
-      }
-      
-      if (!keys || keys.length === 0) {
-        const error = new Error('No signing keys available in JWKS');
-        logger.error('JWT validation error:', error.message);
-        return callback(error);
-      }
-      
-      // Use the first signing key
-      const firstKey = keys[0];
-      const signingKey = firstKey.publicKey || firstKey.rsaPublicKey;
-      if (!signingKey) {
-        const error = new Error('No valid public key found in first signing key');
-        logger.error('JWT validation error:', error.message);
-        return callback(error);
-      }
-      
-      logger.debug('Using first available signing key (no KID specified)', { 
-        keyId: firstKey.kid || 'unknown' 
+    
+    // Handle other errors normally
+    if (err) {
+      logger.error('Failed to get signing key:', {
+        error: err.message,
+        kid: kidToUse,
+        jwksUri: `https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`
       });
-      callback(null, signingKey);
-    });
-  } catch (error) {
-    logger.error('Unexpected error in getKey:', error);
-    callback(error);
-  }
+      return callback(err);
+    }
+    
+    const signingKey = key.publicKey || key.rsaPublicKey;
+    if (!signingKey) {
+      const error = new Error('No valid signing key found in JWKS response');
+      logger.error('JWT validation error:', error.message);
+      return callback(error);
+    }
+    
+    logger.debug('Successfully retrieved signing key', { kid: kidToUse });
+    callback(null, signingKey);
+  });
 };
 
 // Auth0 JWT validation middleware with improved configuration
