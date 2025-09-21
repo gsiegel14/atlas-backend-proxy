@@ -15,6 +15,7 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { correlationId } from './middleware/correlationId.js';
 import { FoundryService } from './services/foundryService.js';
 import { healthRouter } from './routes/health.js';
+import { publicDebugRouter } from './routes/publicDebug.js';
 import { patientRouter } from './routes/patient.js';
 import { foundryRouter } from './routes/foundry.js';
 import { debugRouter } from './routes/debug.js';
@@ -79,6 +80,8 @@ app.use(globalRateLimit);
 
 // Health check (no auth required)
 app.use('/health', healthRouter);
+// Public debug (no auth required) — safe metadata only
+app.use('/debug/public', publicDebugRouter);
 
 // Auth0 validation for protected routes
 app.use('/api', validateAuth0Token, usernamePropagation);
