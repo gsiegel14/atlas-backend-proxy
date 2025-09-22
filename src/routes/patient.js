@@ -1,5 +1,4 @@
 import express from 'express';
-import { A } from '@osdk/foundry';
 import { validateTokenWithScopes } from '../middleware/auth0.js';
 import { FoundryService } from '../services/foundryService.js';
 import { client as osdkClient, osdkHost, osdkOntologyRid } from '../osdk/client.js';
@@ -114,7 +113,7 @@ router.post('/profile/search', validateTokenWithScopes(['read:patient']), async 
 
     const pageSize = Math.max(Math.min(parseInt(limit, 10) || 1, 100), 1);
     const requestUrl = `${osdkHost}/api/v2/ontologies/${osdkOntologyRid}/objects/${objectTypePath}/search`;
-    const patientObjects = osdkClient(A);
+    const patientObjects = osdkClient('A');
     let lastObjects = [];
 
     logger.info('Patient profile search request', {
