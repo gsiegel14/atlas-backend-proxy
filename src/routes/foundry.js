@@ -505,13 +505,34 @@ router.get('/observations', validateTokenWithScopes(['read:patient']), async (re
       });
     }
 
-    // Test: Try without category filter first to see if we get any observations
-    const payload = {
-      where: {
+    // Map iOS category names to Foundry category values
+    const categoryMapping = {
+      'vital-signs': 'Vital signs',  // iOS sends 'vital-signs', Foundry has 'Vital signs'
+      'laboratory': 'Laboratory',    // iOS sends 'laboratory', Foundry has 'Laboratory'
+      'survey': 'Survey',            // iOS sends 'survey', Foundry has 'Survey'
+      'exam': 'Laboratory'           // iOS sends 'exam', map to 'Laboratory' as fallback
+    };
+
+    const mappedCategory = categoryParam ? categoryMapping[categoryParam] || categoryParam : null;
+
+    const filters = [
+      {
         type: 'eq',
         field: 'patientId',
         value: testPatientId
       }
+    ];
+
+    if (mappedCategory) {
+      filters.push({
+        type: 'eq',
+        field: 'category',
+        value: mappedCategory
+      });
+    }
+
+    const payload = {
+      where: filters.length === 1 ? filters[0] : { type: 'and', value: filters }
     };
 
     if (pageSize && pageSize > 0) {
@@ -528,6 +549,7 @@ router.get('/observations', validateTokenWithScopes(['read:patient']), async (re
     logger.info('Fetching observations from Foundry', {
       patientId,
       category: categoryParam || null,
+      mappedCategory: mappedCategory || null,
       pageSize,
       sortField,
       sortDirection,
