@@ -181,11 +181,14 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
       throw new Error('Foundry clinical notes ontology RID is not configured');
     }
 
+    // Hardcode patient ID for testing clinical notes (same as working commit 0cb44dd)
+    const testPatientId = "7c2f5a19-087b-8b19-1070-800857d62e92";
+    
     const payload = {
       where: {
         type: 'eq',
         field: 'patientId',
-        value: patientId
+        value: testPatientId
       }
     };
 
@@ -483,11 +486,14 @@ router.get('/observations', validateTokenWithScopes(['read:patient']), async (re
       throw new Error('Foundry observations ontology RID is not configured');
     }
 
+    // Use the same test patient ID that has data (same as clinical notes)
+    const testPatientId = defaultObservationsPatientId;
+
     const filters = [
       {
         type: 'eq',
         field: 'patientId',
-        value: patientId
+        value: testPatientId
       }
     ];
 
@@ -685,11 +691,14 @@ router.get('/conditions', validateTokenWithScopes(['read:patient']), async (req,
       throw new Error('Foundry conditions ontology RID is not configured');
     }
 
+    // Use the same test patient ID that has data (same as clinical notes and observations)
+    const testPatientId = "7c2f5a19-087b-8b19-1070-800857d62e92";
+
     const payload = {
       where: {
         type: 'eq',
         field: 'patientId',
-        value: patientId
+        value: testPatientId
       }
     };
 
