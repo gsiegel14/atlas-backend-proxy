@@ -174,8 +174,11 @@ export class FoundryService {
       }
       return await this.apiCircuit.fire(method, finalEndpoint, data, headers);
     } catch (error) {
-      if (error.message === 'Circuit breaker is open') {
-        throw new Error('Foundry service temporarily unavailable');
+      const msg = String(error?.message || '');
+      if (msg.includes('Circuit breaker is open') || msg.includes('Breaker is open')) {
+        const unavailable = new Error('Foundry service temporarily unavailable');
+        unavailable.status = 503;
+        throw unavailable;
       }
       throw error;
     }
