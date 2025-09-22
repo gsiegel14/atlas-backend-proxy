@@ -166,9 +166,12 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
     // Hardcode patient ID for testing clinical notes
     const testPatientId = "7c2f5a19-087b-8b19-1070-800857d62e92";
     
+    // Use the exact same working pattern as getPatientProfile
     const payload = {
       where: {
-        patientId: { $eq: testPatientId }
+        type: 'eq',
+        field: 'patientId',
+        value: testPatientId
       }
     };
     
@@ -177,7 +180,7 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
       payload.pageSize = pageSize;
     }
     
-    // Add orderBy back with correct structure
+    // Add orderBy back with correct structure (try both formats)
     if (sortField && sortDirection) {
       payload.orderBy = [{ field: sortField, direction: sortDirection }];
     }
@@ -197,10 +200,10 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
       correlationId: req.correlationId
     });
 
-    const endpoint = `/api/v2/ontologies/${ontologyId}/objects/${clinicalNotesObjectType}/search`;
+    // Use the same method as the working patient profile
     let result;
     try {
-      result = await foundryService.apiCall('POST', endpoint, payload);
+      result = await foundryService.searchOntologyObjects(ontologyId, clinicalNotesObjectType, payload);
     } catch (error) {
       if (error.status === 429) {
         return res.status(503).json({
