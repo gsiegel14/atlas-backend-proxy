@@ -1,7 +1,7 @@
 import express from 'express';
 import { validateTokenWithScopes } from '../middleware/auth0.js';
 import { FoundryService } from '../services/foundryService.js';
-import { client as osdkClient, osdkHost, osdkOntologyRid } from '../osdk/client.js';
+import { osdkHost, osdkOntologyRid } from '../osdk/client.js';
 import { logger } from '../utils/logger.js';
 
 const router = express.Router();
@@ -215,13 +215,10 @@ router.get('/patient/profile', validateTokenWithScopes(['read:patient']), async 
       correlationId: req.correlationId
     });
 
-    // Use OSDK to search object type 'A' by user_id, matching the working curl flow
-    const patientObjects = osdkClient('A');
-    const page = await patientObjects
-      .where({ user_id: { $eq: userId } })
-      .fetchPage({ $pageSize: 1 });
+    // Use the foundryService to get the patient profile
+    const profile = await foundryService.getPatientProfile(userId);
 
-    if (!Array.isArray(page.data) || page.data.length === 0) {
+    if (!profile) {
       return res.status(404).json({
         error: {
           code: 'PROFILE_NOT_FOUND',
@@ -232,7 +229,7 @@ router.get('/patient/profile', validateTokenWithScopes(['read:patient']), async 
       });
     }
 
-    const properties = JSON.parse(JSON.stringify(page.data[0]));
+    const properties = profile.properties || profile;
     const rid = properties.$primaryKey ?? properties.$rid ?? properties.rid ?? properties.id ?? null;
 
     // Check if the patient has a profile photo
