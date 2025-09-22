@@ -15,8 +15,8 @@
     "lint:fix": "eslint src/ --fix"
   },
   "dependencies": {
-    "@atlas-dev/sdk": "^0.4.0",
     "@osdk/client": "^2.4.1",
+    "@osdk/foundry": "^2.31.0",
     "@osdk/oauth": "^1.4.0",
     "axios": "^1.6.2",
     "cors": "^2.8.5",

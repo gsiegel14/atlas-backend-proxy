@@ -1,5 +1,5 @@
 import express from 'express';
-import { A } from '@atlas-dev/sdk';
+import { A } from '@osdk/foundry';
 import { validateTokenWithScopes } from '../middleware/auth0.js';
 import { FoundryService } from '../services/foundryService.js';
 import { client as osdkClient, osdkHost, osdkOntologyRid } from '../osdk/client.js';
