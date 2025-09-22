@@ -6,6 +6,10 @@ import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
+const CLINICAL_NOTES_CACHE_TTL_MS = 30 * 1000;
+const clinicalNotesCache = new Map();
+const clinicalNotesObjectType = process.env.FOUNDRY_CLINICAL_NOTES_OBJECT_TYPE || 'ClinicalNotes';
+
 // Initialize Foundry service
 const foundryService = new FoundryService({
   host: process.env.FOUNDRY_HOST,
@@ -82,6 +86,198 @@ router.post('/actions/:actionId/invoke', validateTokenWithScopes(['execute:actio
       user: req.user.sub,
       correlationId: req.correlationId
     });
+    next(error);
+  }
+});
+
+router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (req, res, next) => {
+  try {
+    const patientId = typeof req.query.patientId === 'string' ? req.query.patientId.trim() : '';
+    if (!patientId) {
+      return res.status(400).json({
+        error: {
+          code: 'MISSING_PATIENT_ID',
+          message: 'patientId query parameter is required',
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    const parsedPageSize = Number.parseInt(req.query.pageSize, 10);
+    const pageSize = Math.max(Math.min(Number.isFinite(parsedPageSize) ? parsedPageSize : 25, 100), 1);
+    const pageToken = typeof req.query.pageToken === 'string' && req.query.pageToken.trim().length > 0
+      ? req.query.pageToken.trim()
+      : undefined;
+
+    const allowedSortFields = new Set(['documentDate', 'encounterId']);
+    const sortParam = typeof req.query.sort === 'string' ? req.query.sort.trim() : '';
+    let sortField = 'documentDate';
+    let sortDirection = 'DESC';
+
+    if (sortParam) {
+      let requestedField = sortParam;
+      let requestedDirection = sortDirection;
+
+      if (sortParam.includes(':')) {
+        const [fieldPart, directionPart] = sortParam.split(':');
+        requestedField = fieldPart.trim();
+        const trimmedDirection = directionPart?.trim().toUpperCase();
+        if (trimmedDirection === 'ASC' || trimmedDirection === 'DESC') {
+          requestedDirection = trimmedDirection;
+        }
+      } else if (sortParam.startsWith('-')) {
+        requestedField = sortParam.substring(1).trim();
+        requestedDirection = 'DESC';
+      } else if (sortParam.startsWith('+')) {
+        requestedField = sortParam.substring(1).trim();
+        requestedDirection = 'ASC';
+      } else {
+        requestedField = sortParam;
+        requestedDirection = 'DESC';
+      }
+
+      if (allowedSortFields.has(requestedField)) {
+        sortField = requestedField;
+        sortDirection = requestedDirection;
+      }
+    }
+
+    const cacheKey = JSON.stringify({ patientId, pageSize, pageToken: pageToken ?? null, sortField, sortDirection });
+    const now = Date.now();
+    const cached = clinicalNotesCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      logger.debug('Serving clinical notes from cache', {
+        patientId,
+        pageSize,
+        sortField,
+        sortDirection,
+        pageToken,
+        correlationId: req.correlationId
+      });
+      return res.json(cached.payload);
+    }
+
+    const ontologyId = foundryService.ontologyRid || process.env.FOUNDRY_ONTOLOGY_RID;
+    if (!ontologyId) {
+      throw new Error('Foundry clinical notes ontology RID is not configured');
+    }
+
+    const payload = {
+      filter: {
+        patientId: {
+          $eq: patientId
+        }
+      },
+      pageSize,
+      sort: [
+        {
+          field: sortField,
+          direction: sortDirection
+        }
+      ]
+    };
+
+    if (pageToken) {
+      payload.pageToken = pageToken;
+    }
+
+    logger.info('Fetching clinical notes from Foundry', {
+      patientId,
+      pageSize,
+      sortField,
+      sortDirection,
+      pageToken,
+      correlationId: req.correlationId
+    });
+
+    const endpoint = `/api/v2/ontologies/${ontologyId}/objects/${clinicalNotesObjectType}/search`;
+    let result;
+    try {
+      result = await foundryService.apiCall('POST', endpoint, payload);
+    } catch (error) {
+      if (error.status === 429) {
+        return res.status(503).json({
+          error: {
+            code: 'FOUNDRY_THROTTLED',
+            message: 'Foundry returned throttling response',
+            correlationId: req.correlationId,
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+
+      if (error.status === 400) {
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_REQUEST',
+            message: error.foundryError?.message || 'Invalid Foundry request parameters',
+            correlationId: req.correlationId,
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+
+      throw error;
+    }
+
+    const rawEntries = [];
+    if (Array.isArray(result?.data)) {
+      rawEntries.push(...result.data);
+    }
+    if (Array.isArray(result?.objects)) {
+      rawEntries.push(...result.objects);
+    }
+    if (Array.isArray(result?.results)) {
+      rawEntries.push(...result.results);
+    }
+    if (Array.isArray(result?.entries)) {
+      rawEntries.push(...result.entries);
+    }
+
+    const notes = rawEntries.map((entry) => {
+      if (entry && typeof entry === 'object') {
+        if (entry.properties && typeof entry.properties === 'object') {
+          return entry.properties;
+        }
+        return entry;
+      }
+      return {};
+    });
+
+    const responsePayload = {
+      success: true,
+      data: notes,
+      nextPageToken: result?.nextPageToken || result?.next_page_token || result?.pageToken || null,
+      fetchedAt: new Date().toISOString(),
+      correlationId: req.correlationId
+    };
+
+    clinicalNotesCache.set(cacheKey, {
+      expiresAt: now + CLINICAL_NOTES_CACHE_TTL_MS,
+      payload: responsePayload
+    });
+
+    res.json(responsePayload);
+  } catch (error) {
+    if (error.message === 'Foundry service temporarily unavailable') {
+      return res.status(503).json({
+        error: {
+          code: 'FOUNDRY_UNAVAILABLE',
+          message: 'Foundry service temporarily unavailable',
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    logger.error('Failed to fetch clinical notes', {
+      patientId: req.query.patientId,
+      error: error.message,
+      status: error.status,
+      correlationId: req.correlationId
+    });
+
     next(error);
   }
 });
