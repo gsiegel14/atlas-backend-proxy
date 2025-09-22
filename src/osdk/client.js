@@ -13,6 +13,13 @@ if (!ontologyRid) {
     throw new Error('FOUNDRY_ONTOLOGY_RID environment variable is required');
 }
 
+console.log('OSDK Client Configuration:', {
+    host,
+    ontologyRid,
+    hasClientId: !!process.env.FOUNDRY_CLIENT_ID,
+    hasClientSecret: !!process.env.FOUNDRY_CLIENT_SECRET
+});
+
 const DEFAULT_SCOPES = [
     'api:use-ontologies-read',
     'api:use-ontologies-write',
@@ -57,6 +64,20 @@ function createTokenProvider() {
 const tokenProvider = createTokenProvider();
 
 // createClient returns a function that can be invoked with an object type export from the SDK
-const client = createOSDKClient(host, ontologyRid, tokenProvider);
+let client;
+try {
+    console.log('Creating OSDK client with:', { host, ontologyRid: ontologyRid.substring(0, 20) + '...' });
+    client = createOSDKClient(host, ontologyRid, tokenProvider);
+    console.log('OSDK client created successfully');
+} catch (error) {
+    console.error('Failed to create OSDK client:', {
+        error: error.message,
+        host,
+        ontologyRid,
+        ontologyRidLength: ontologyRid.length,
+        ontologyRidType: typeof ontologyRid
+    });
+    throw error;
+}
 
 export { client, host as osdkHost, ontologyRid as osdkOntologyRid };

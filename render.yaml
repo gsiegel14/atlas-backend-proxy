@@ -21,6 +21,14 @@ services:
         value: https://api.atlas.ai
       - key: FOUNDRY_HOST
         value: https://atlasengine.palantirfoundry.com
+      - key: FOUNDRY_CLIENT_ID
+        value: d8038d443b968266e86ccc15b2373c9f
+      - key: FOUNDRY_ONTOLOGY_RID
+        value: ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194
+      - key: FOUNDRY_OAUTH_TOKEN_URL
+        value: https://atlasengine.palantirfoundry.com/multipass/api/oauth2/token
+      - key: FOUNDRY_OBJECT_TYPE_API_NAME
+        value: A
       - key: REDIS_URL
         value: redis://red-d37dftre5dus7399gebg:6379
       - key: CORS_ORIGINS

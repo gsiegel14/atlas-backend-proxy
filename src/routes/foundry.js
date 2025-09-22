@@ -139,6 +139,46 @@ router.post('/query', validateTokenWithScopes(['execute:queries']), async (req, 
   }
 });
 
+// Get patient profile by user_id
+router.get('/patient/profile', validateTokenWithScopes(['read:patient']), async (req, res, next) => {
+  try {
+    const userId = req.user.sub; // Use the authenticated user's ID
+    
+    logger.info('Fetching patient profile', {
+      userId,
+      correlationId: req.correlationId
+    });
+
+    const profile = await foundryService.getPatientProfile(userId);
+
+    if (!profile) {
+      return res.status(404).json({
+        error: {
+          code: 'PROFILE_NOT_FOUND',
+          message: 'No patient profile found for this user',
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      data: profile,
+      timestamp: new Date().toISOString(),
+      correlationId: req.correlationId
+    });
+
+  } catch (error) {
+    logger.error('Failed to fetch patient profile:', {
+      error: error.message,
+      user: req.user.sub,
+      correlationId: req.correlationId
+    });
+    next(error);
+  }
+});
+
 // Get ontology metadata
 router.get('/ontology/metadata', validateTokenWithScopes(['read:ontology']), async (req, res, next) => {
   try {

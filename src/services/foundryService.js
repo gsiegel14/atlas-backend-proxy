@@ -183,8 +183,38 @@ export class FoundryService {
   }
 
   async searchOntologyObjects(ontologyId, objectTypePath, payload = {}) {
-    const endpoint = `/api/v1/ontologies/${ontologyId}/objects/${objectTypePath}/search`;
+    const endpoint = `/api/v2/ontologies/${ontologyId}/objects/${objectTypePath}/search`;
     return this.apiCall('POST', endpoint, payload);
+  }
+
+  // Get patient profile by user_id using the test ontology (where data currently exists)
+  async getPatientProfile(userId) {
+    const ontologyRid = 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+    const objectType = 'A';
+    
+    const searchPayload = {
+      where: {
+        type: 'eq',
+        field: 'user_id',
+        value: userId
+      },
+      pageSize: 10
+    };
+
+    logger.debug('Searching for patient profile', {
+      userId,
+      ontologyRid,
+      objectType
+    });
+
+    const result = await this.searchOntologyObjects(ontologyRid, objectType, searchPayload);
+    
+    // Return the first matching profile or null if none found
+    if (result.data && result.data.length > 0) {
+      return result.data[0];
+    }
+    
+    return null;
   }
 
   async getPatientDashboard(patientId) {

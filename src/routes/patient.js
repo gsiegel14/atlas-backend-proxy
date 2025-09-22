@@ -1,13 +1,9 @@
 import express from 'express';
+import { A } from '@atlas-dev/sdk';
 import { validateTokenWithScopes } from '../middleware/auth0.js';
 import { FoundryService } from '../services/foundryService.js';
 import { client as osdkClient, osdkHost, osdkOntologyRid } from '../osdk/client.js';
 import { logger } from '../utils/logger.js';
-
-// Object type definition for OSDK queries
-// This replaces the 'A' import from @atlas-dev/sdk
-// The actual object type API name should be provided via environment variable
-const OBJECT_TYPE_API_NAME = process.env.FOUNDRY_OBJECT_TYPE_API_NAME || 'A';
 
 const router = express.Router();
 
@@ -101,99 +97,120 @@ router.post('/profile/search', validateTokenWithScopes(['read:patient']), async 
 
     const candidates = Array.isArray(fieldCandidates) && fieldCandidates.length > 0
       ? fieldCandidates
-      : ['user_id', 'userId', 'patientId'];
+      : ['patientId', 'user_id', 'userId'];
 
-    const ontologies = Array.isArray(ontologyIds) && ontologyIds.length > 0
-      ? ontologyIds
-      : [process.env.PATIENT_PROFILE_ONTOLOGY_ID].filter(Boolean);
-
-    if (ontologies.length === 0) {
-      return res.status(500).json({
-        error: {
-          code: 'MISSING_ONTOLOGY_ID',
-          message: 'No ontology identifiers provided',
-          correlationId: req.correlationId,
-          timestamp: new Date().toISOString()
-        }
+    const uniqueCandidates = Array.from(new Set(['patientId', ...candidates])).filter(Boolean);
+    const requestedOntologyIds = Array.isArray(ontologyIds) ? ontologyIds : [];
+    if (requestedOntologyIds.length > 0 && !requestedOntologyIds.includes(osdkOntologyRid)) {
+      logger.warn('Ignoring unsupported ontology identifiers for patient profile search', {
+        requestedOntologyIds,
+        supportedOntologyId: osdkOntologyRid,
+        correlationId: req.correlationId
       });
     }
 
     const pageSize = Math.max(Math.min(parseInt(limit, 10) || 1, 100), 1);
-    const defaultOntologyId = ontologies.find(id => !id || id === osdkOntologyRid) ?? osdkOntologyRid;
-    let lastResponse = { objects: [] };
-    let lastOntologyId = defaultOntologyId;
+    const requestUrl = `${osdkHost}/api/v2/ontologies/${osdkOntologyRid}/objects/${objectTypePath}/search`;
+    const patientObjects = osdkClient(A);
+    let lastObjects = [];
 
-    for (const ontologyId of ontologies) {
-      if (ontologyId && ontologyId !== osdkOntologyRid) {
-        logger.warn('Skipping ontologyId not supported by OSDK client', {
-          ontologyId,
-          supportedOntologyId: osdkOntologyRid,
-          correlationId: req.correlationId
+    logger.info('Patient profile search request', {
+      patientIdValue: value,
+      candidates: uniqueCandidates,
+      limit: pageSize,
+      requestedOntologyIds,
+      usingOntologyId: osdkOntologyRid,
+      correlationId: req.correlationId
+    });
+
+    for (const field of uniqueCandidates) {
+      const filter = { [field]: { $eq: value } };
+
+      try {
+        const objectSet = patientObjects.where(filter);
+        const page = await objectSet.fetchPage({ $pageSize: pageSize });
+        const objects = page.data.map(record => {
+          const properties = JSON.parse(JSON.stringify(record));
+          const rid = properties.$primaryKey ?? properties.$rid ?? properties.rid ?? properties.id ?? null;
+          return {
+            rid,
+            properties,
+            ontologyId: osdkOntologyRid,
+            sourceURL: requestUrl,
+            httpStatus: 200
+          };
         });
-        continue;
-      }
 
-      const effectiveOntologyId = ontologyId || osdkOntologyRid;
-
-      for (const field of candidates) {
-        const filter = { [field]: { $eq: value } };
-
-        try {
-          const objectSet = osdkClient(OBJECT_TYPE_API_NAME).where(filter);
-          const page = await objectSet.fetchPage({ $pageSize: pageSize });
-          const objects = page.data.map(record => {
-            const properties = JSON.parse(JSON.stringify(record));
-            const rid = properties.$primaryKey ?? properties.$rid ?? properties.rid ?? properties.id ?? null;
-            return {
-              rid,
-              properties,
-              ontologyId: effectiveOntologyId,
-              sourceURL: `${osdkHost}/api/v2/ontologies/${effectiveOntologyId}/objects/${objectTypePath}/search`,
-              httpStatus: 200
-            };
+        if (objects.length > 0) {
+          logger.info('OSDK ontology search returned objects', {
+            ontologyId: osdkOntologyRid,
+            field,
+            count: objects.length,
+            correlationId: req.correlationId
           });
 
-          const response = { objects };
-
-          if (objects.length > 0) {
-            logger.info('OSDK ontology search returned objects', {
-              ontologyId: effectiveOntologyId,
-              field,
-              count: objects.length,
-              correlationId: req.correlationId
-            });
-
-            return res.json({
-              success: true,
-              data: {
-                ontologyId: effectiveOntologyId,
-                requestUrl: `${osdkHost}/api/v2/ontologies/${effectiveOntologyId}/objects/${objectTypePath}/search`,
-                response
-              },
-              timestamp: new Date().toISOString(),
-              correlationId: req.correlationId
-            });
-          }
-
-          lastResponse = response;
-          lastOntologyId = effectiveOntologyId;
-        } catch (error) {
-          logger.warn('OSDK ontology search attempt failed', {
-            ontologyId: effectiveOntologyId,
-            field,
-            error: error.message,
+          return res.json({
+            success: true,
+            data: {
+              ontologyId: osdkOntologyRid,
+              requestUrl,
+              response: { objects }
+            },
+            timestamp: new Date().toISOString(),
             correlationId: req.correlationId
           });
         }
+
+        logger.info('OSDK ontology search returned zero objects', {
+          ontologyId: osdkOntologyRid,
+          field,
+          patientIdValue: value,
+          correlationId: req.correlationId
+        });
+        lastObjects = objects;
+      } catch (error) {
+        logger.warn('OSDK ontology search attempt failed', {
+          ontologyId: osdkOntologyRid,
+          field,
+          error: error.message,
+          correlationId: req.correlationId
+        });
       }
     }
+
+    try {
+      const samplePage = await patientObjects.fetchPage({ $pageSize: Math.min(pageSize, 5) });
+      const sampleIds = samplePage.data
+        .map(record => JSON.parse(JSON.stringify(record)).patientId)
+        .filter(Boolean)
+        .slice(0, 5);
+      logger.info('Patient profile search sample snapshot', {
+        ontologyId: osdkOntologyRid,
+        sampleSize: samplePage.data.length,
+        samplePatientIds: sampleIds,
+        correlationId: req.correlationId
+      });
+    } catch (sampleError) {
+      logger.warn('Failed to fetch sample page from patient profiles', {
+        ontologyId: osdkOntologyRid,
+        error: sampleError.message,
+        correlationId: req.correlationId
+      });
+    }
+
+    logger.info('Patient profile search completed with no results', {
+      ontologyId: osdkOntologyRid,
+      patientIdValue: value,
+      triedFields: uniqueCandidates,
+      correlationId: req.correlationId
+    });
 
     return res.json({
       success: true,
       data: {
-        ontologyId: lastOntologyId,
-        requestUrl: `${osdkHost}/api/v2/ontologies/${lastOntologyId}/objects/${objectTypePath}/search`,
-        response: lastResponse
+        ontologyId: osdkOntologyRid,
+        requestUrl,
+        response: { objects: lastObjects }
       },
       timestamp: new Date().toISOString(),
       correlationId: req.correlationId
