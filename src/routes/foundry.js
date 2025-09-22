@@ -8,7 +8,7 @@ const router = express.Router();
 
 const CLINICAL_NOTES_CACHE_TTL_MS = 30 * 1000;
 const clinicalNotesCache = new Map();
-const clinicalNotesObjectType = process.env.FOUNDRY_CLINICAL_NOTES_OBJECT_TYPE || 'A';
+const clinicalNotesObjectType = process.env.FOUNDRY_CLINICAL_NOTES_OBJECT_TYPE || 'ClinicalNotes';
 
 // Initialize Foundry service
 const foundryService = new FoundryService({
@@ -168,9 +168,7 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
     
     const payload = {
       where: {
-        type: "eq",
-        field: "patientId", 
-        value: testPatientId
+        patientId: { $eq: testPatientId }
       }
     };
     
@@ -179,10 +177,10 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
       payload.pageSize = pageSize;
     }
     
-    // Try without orderBy first to see if that's causing the issue
-    // if (sortField && sortDirection) {
-    //   payload.orderBy = [[sortField, sortDirection]];
-    // }
+    // Add orderBy back with correct structure
+    if (sortField && sortDirection) {
+      payload.orderBy = [{ field: sortField, direction: sortDirection }];
+    }
 
     if (pageToken) {
       payload.pageToken = pageToken;
