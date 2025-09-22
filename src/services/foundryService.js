@@ -115,12 +115,19 @@ export class FoundryService {
     try {
       return await this.tokenCircuit.fire();
     } catch (error) {
-      // Fallback to expired cached token if available
-      if (cached) {
-        logger.warn('Using expired token due to circuit breaker failure');
+      const msg = String(error?.message || '');
+      // Fallback to expired cached token if available when breaker has opened
+      if (cached && (msg.includes('Circuit breaker is open') || msg.includes('Breaker is open'))) {
+        logger.warn('Using expired token due to circuit breaker failure (token breaker open)');
         return cached.token;
       }
-      throw new Error('Unable to obtain Foundry token');
+      // Map breaker-open to temporary unavailability for consistent 503 handling upstream
+      if (msg.includes('Circuit breaker is open') || msg.includes('Breaker is open')) {
+        const unavailable = new Error('Foundry service temporarily unavailable');
+        unavailable.status = 503;
+        throw unavailable;
+      }
+      throw error;
     }
   }
   
