@@ -546,6 +546,7 @@ router.get('/observations', validateTokenWithScopes(['read:patient']), async (re
       payload.pageToken = pageToken;
     }
 
+    // Log the request with category mapping for debugging
     logger.info('Fetching observations from Foundry', {
       patientId,
       category: categoryParam || null,
