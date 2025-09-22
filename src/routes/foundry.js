@@ -171,12 +171,18 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
         type: "eq",
         field: "patientId", 
         value: testPatientId
-      },
-      pageSize,
-      orderBy: [
-        [sortField, sortDirection]
-      ]
+      }
     };
+    
+    // Add optional fields only if they're supported
+    if (pageSize && pageSize > 0) {
+      payload.pageSize = pageSize;
+    }
+    
+    // Try without orderBy first to see if that's causing the issue
+    // if (sortField && sortDirection) {
+    //   payload.orderBy = [[sortField, sortDirection]];
+    // }
 
     if (pageToken) {
       payload.pageToken = pageToken;
@@ -189,6 +195,7 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
       sortField,
       sortDirection,
       pageToken,
+      payload: JSON.stringify(payload),
       correlationId: req.correlationId
     });
 
