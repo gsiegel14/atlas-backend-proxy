@@ -8,6 +8,13 @@ export class FoundryService {
     this.clientId = config.clientId;
     this.clientSecret = config.clientSecret;
     this.tokenUrl = config.tokenUrl;
+    this.ontologyRid = config.ontologyRid || process.env.FOUNDRY_ONTOLOGY_RID;
+    this.medicationsActionId = config.medicationsActionId
+      || process.env.FOUNDRY_MEDICATIONS_ACTION_ID
+      || 'create-medications-upload';
+    this.medicationsUploadObjectType = config.medicationsUploadObjectType
+      || process.env.FOUNDRY_MEDICATIONS_OBJECT_TYPE
+      || 'MedicationsUpload';
     
     this.tokenCache = new Map();
     
@@ -155,7 +162,7 @@ export class FoundryService {
       throw enhancedError;
     }
   }
-  
+
   // Wrapper method for circuit breaker protected API calls
   async apiCall(method, endpoint, data = null, headers = {}) {
     try {
@@ -167,7 +174,264 @@ export class FoundryService {
       throw error;
     }
   }
-  
+
+  buildActionEndpointCandidates(actionId, pathTail, ontologyId = this.ontologyRid) {
+    if (!ontologyId) {
+      throw new Error('Foundry ontology RID is not configured');
+    }
+
+    const canonicalActionIds = new Set();
+    if (actionId) {
+      canonicalActionIds.add(actionId);
+      canonicalActionIds.add(actionId.replace(/_/g, '-'));
+      canonicalActionIds.add(actionId.replace(/-([a-z])/g, (_, c) => c.toUpperCase()));
+      canonicalActionIds.add(actionId.replace(/([A-Z])/g, '-$1').replace(/^-/, '').toLowerCase());
+    }
+
+    const prefixes = [
+      `/api/v2/ontologies/${ontologyId}/actions`,
+      `/ontology/api/v2/ontologies/${ontologyId}/actions`,
+      `/v2/ontologies/${ontologyId}/actions`
+    ];
+
+    const endpoints = new Set();
+    for (const prefix of prefixes) {
+      for (const candidate of canonicalActionIds) {
+        endpoints.add(`${prefix}/${candidate}/${pathTail}`);
+      }
+    }
+    return Array.from(endpoints);
+  }
+
+  normalizeActionOptions(options = {}) {
+    const normalized = {
+      mode: 'VALIDATE_AND_EXECUTE',
+      returnEdits: 'NONE'
+    };
+
+    if (options.mode) {
+      normalized.mode = options.mode;
+    }
+    if (options.$mode) {
+      normalized.mode = options.$mode;
+    }
+    if (options.returnEdits) {
+      normalized.returnEdits = options.returnEdits;
+    }
+    if (options.$returnEdits !== undefined) {
+      normalized.returnEdits = options.$returnEdits === true ? 'ALL' : options.$returnEdits;
+    }
+
+    return normalized;
+  }
+
+  static normalizeMediaReference(value) {
+    if (!value) {
+      return null;
+    }
+
+    if (typeof value === 'string') {
+      if (value.startsWith('ri.')) {
+        return { $rid: value };
+      }
+      return value;
+    }
+
+    if (typeof value === 'object') {
+      const normalized = { ...value };
+      if (normalized.rid && !normalized.$rid) {
+        normalized.$rid = normalized.rid;
+      }
+      if (normalized.mediaRid && !normalized.$rid) {
+        normalized.$rid = normalized.mediaRid;
+      }
+      if (normalized.reference && typeof normalized.reference === 'object') {
+        const ref = normalized.reference;
+        if (ref.rid && !ref.$rid) {
+          ref.$rid = ref.rid;
+        }
+      }
+      return normalized;
+    }
+
+    return value;
+  }
+
+  normalizeOntologySearchResults(response = {}) {
+    const entries = [];
+    if (Array.isArray(response)) {
+      entries.push(...response);
+    }
+    if (Array.isArray(response.objects)) {
+      entries.push(...response.objects);
+    }
+    if (Array.isArray(response.data)) {
+      entries.push(...response.data);
+    }
+    if (Array.isArray(response.results)) {
+      entries.push(...response.results);
+    }
+    if (response.properties && typeof response.properties === 'object') {
+      entries.push({ properties: response.properties });
+    }
+
+    const normalized = [];
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object') {
+        continue;
+      }
+
+      const properties = entry.properties && typeof entry.properties === 'object'
+        ? entry.properties
+        : entry;
+
+      const medicationId = properties.medicationId || properties.medication_id || entry.medicationId || null;
+      const timestamp = properties.timestamp || null;
+      const userId = properties.userId || properties.user_id || null;
+      const photolabel = properties.photolabel ?? null;
+      const rid = entry.rid
+        || properties.$primaryKey
+        || properties.$rid
+        || properties.rid
+        || medicationId
+        || null;
+
+      normalized.push({
+        rid,
+        medicationId,
+        timestamp,
+        userId,
+        photolabel,
+        properties
+      });
+    }
+
+    return normalized;
+  }
+
+  async applyOntologyAction(actionId, parameters = {}, options = {}) {
+    const payload = {
+      parameters,
+      options: this.normalizeActionOptions(options)
+    };
+
+    const endpoints = this.buildActionEndpointCandidates(actionId, 'apply');
+    let lastError;
+    for (const endpoint of endpoints) {
+      try {
+        logger.debug('Attempting Foundry ontology action', {
+          actionId,
+          endpoint,
+          correlationId: payload.parameters?.correlationId
+        });
+        return await this.apiCall('POST', endpoint, payload);
+      } catch (error) {
+        lastError = error;
+        logger.warn('Foundry ontology action attempt failed', {
+          actionId,
+          endpoint,
+          error: error.message
+        });
+      }
+    }
+
+    if (lastError) {
+      throw lastError;
+    }
+    throw new Error(`Unable to apply Foundry action '${actionId}'`);
+  }
+
+  async createMedicationsUpload({
+    userId,
+    timestamp,
+    photolabel,
+    additionalParameters = {},
+    options = {}
+  }) {
+    if (!userId) {
+      throw new Error('userId is required to create a medications upload');
+    }
+    if (!photolabel) {
+      throw new Error('photolabel is required to create a medications upload');
+    }
+
+    const normalizedPhotolabel = FoundryService.normalizeMediaReference(photolabel);
+    const actionParams = {
+      user_id: userId,
+      timestamp: timestamp || new Date().toISOString(),
+      photolabel: normalizedPhotolabel,
+      ...additionalParameters
+    };
+
+    logger.info('Creating medications upload via Foundry action', {
+      userId,
+      timestamp: actionParams.timestamp
+    });
+
+    return this.applyOntologyAction(this.medicationsActionId, actionParams, options);
+  }
+
+  async listMedicationsUploads(userIdentifiers = [], { limit = 50 } = {}) {
+    if (!this.ontologyRid) {
+      throw new Error('Foundry ontology RID is not configured');
+    }
+
+    const identifiers = Array.from(new Set((userIdentifiers || []).filter(Boolean)));
+    if (identifiers.length === 0) {
+      return [];
+    }
+
+    const pageSize = Math.max(1, Math.min(parseInt(limit, 10) || 50, 200));
+    const responses = [];
+    const seen = new Set();
+
+    for (const id of identifiers) {
+      const payload = {
+        where: {
+          type: 'eq',
+          field: 'userId',
+          value: id
+        },
+        pageSize
+      };
+
+      try {
+        const searchResult = await this.searchOntologyObjects(
+          this.ontologyRid,
+          this.medicationsUploadObjectType,
+          payload
+        );
+        const normalized = this.normalizeOntologySearchResults(searchResult);
+        for (const item of normalized) {
+          const dedupeKey = item.rid || `${item.userId || 'unknown'}#${item.medicationId || item.timestamp}`;
+          if (dedupeKey && !seen.has(dedupeKey)) {
+            seen.add(dedupeKey);
+            responses.push({
+              ...item,
+              source: {
+                ontologyId: this.ontologyRid,
+                objectType: this.medicationsUploadObjectType
+              }
+            });
+          }
+        }
+      } catch (error) {
+        logger.warn('Failed to fetch medications uploads for identifier', {
+          identifier: id,
+          error: error.message
+        });
+      }
+    }
+
+    responses.sort((a, b) => {
+      const tsA = a.timestamp ? Date.parse(a.timestamp) : 0;
+      const tsB = b.timestamp ? Date.parse(b.timestamp) : 0;
+      return tsB - tsA;
+    });
+
+    return responses;
+  }
+
   // Specific methods for common operations
   async invokeAction(actionId, parameters = {}) {
     return this.apiCall('POST', `/api/v1/ontologies/actions/${actionId}/invoke`, {

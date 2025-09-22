@@ -17,3 +17,19 @@ jest.mock('redis', () => ({
     sendCommand: jest.fn().mockResolvedValue(undefined)
   }))
 }));
+
+jest.mock('../middleware/auth0.js', () => {
+  const actual = jest.requireActual('../middleware/auth0.js');
+  return {
+    ...actual,
+    validateAuth0Token: (req, res, next) => {
+      req.user = req.user || {
+        sub: 'auth0|test-user',
+        scope: 'read:patient execute:actions',
+        preferred_username: 'test.user@example.com',
+        email: 'test.user@example.com'
+      };
+      next();
+    }
+  };
+});

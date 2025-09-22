@@ -10,7 +10,10 @@ const foundryService = new FoundryService({
   host: process.env.FOUNDRY_HOST,
   clientId: process.env.FOUNDRY_CLIENT_ID,
   clientSecret: process.env.FOUNDRY_CLIENT_SECRET,
-  tokenUrl: process.env.FOUNDRY_OAUTH_TOKEN_URL
+  tokenUrl: process.env.FOUNDRY_OAUTH_TOKEN_URL,
+  ontologyRid: process.env.FOUNDRY_ONTOLOGY_RID,
+  medicationsActionId: process.env.FOUNDRY_MEDICATIONS_ACTION_ID,
+  medicationsUploadObjectType: process.env.FOUNDRY_MEDICATIONS_OBJECT_TYPE
 });
 
 // Generic action invocation endpoint
