@@ -154,8 +154,7 @@ function normalizeSort(sortParam) {
 }
 
 function resolveOntologyRid(foundryService) {
-  return foundryService.ontologyRid
-    || process.env.FOUNDRY_ONTOLOGY_RID
+  return foundryService.getApiOntologyRid()
     || 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
 }
 

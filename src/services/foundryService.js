@@ -62,6 +62,29 @@ export class FoundryService {
       logger.info('Foundry API circuit breaker closed');
     });
   }
+
+  /**
+   * Transform ontology RID from OSDK format to API format
+   * OSDK format: ri.ontology.main.ontology.151e0d3d-719c-464d-be5c-a6dc9f53d194
+   * API format: ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194
+   */
+  getApiOntologyRid(osdkRid = this.ontologyRid) {
+    if (!osdkRid) return null;
+    
+    // If already in API format, return as-is
+    if (osdkRid.startsWith('ontology-')) {
+      return osdkRid;
+    }
+    
+    // Transform from OSDK format to API format
+    if (osdkRid.startsWith('ri.ontology.main.ontology.')) {
+      return osdkRid.replace('ri.ontology.main.ontology.', 'ontology-');
+    }
+    
+    // If unknown format, log warning and return as-is
+    logger.warn(`Unknown ontology RID format: ${osdkRid}`);
+    return osdkRid;
+  }
   
   async fetchToken() {
     const tokenData = {
@@ -469,7 +492,7 @@ export class FoundryService {
 
   // Get patient profile by user_id using the test ontology (where data currently exists)
   async getPatientProfile(userId) {
-    const ontologyRid = 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+    const ontologyRid = this.getApiOntologyRid();
     const objectType = 'A';
     
     const searchPayload = {
