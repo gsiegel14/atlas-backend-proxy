@@ -70,9 +70,11 @@ export class EncountersService {
       payload.pageToken = pageToken;
     }
 
-    if (sortField && sortDirection) {
-      payload.orderBy = [{ field: sortField, direction: sortDirection }];
-    }
+    // Sorting has historically produced InvalidFieldType errors on this ontology.
+    // Keep query parity with observations and clinical notes by omitting orderBy until confirmed otherwise.
+    // if (sortField && sortDirection) {
+    //   payload.orderBy = [{ field: sortField, direction: sortDirection }];
+    // }
 
     logger.info('Fetching encounters from Foundry', {
       patientId,
