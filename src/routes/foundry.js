@@ -489,22 +489,6 @@ router.get('/observations', validateTokenWithScopes(['read:patient']), async (re
     // Use the same test patient ID that has data (same as clinical notes)
     const testPatientId = defaultObservationsPatientId;
 
-    const filters = [
-      {
-        type: 'eq',
-        field: 'patientId',
-        value: testPatientId
-      }
-    ];
-
-    if (categoryParam) {
-      filters.push({
-        type: 'eq',
-        field: 'category',
-        value: categoryParam
-      });
-    }
-
     // Map iOS category names to Foundry category values
     const categoryMapping = {
       'vital-signs': 'Vital signs',  // iOS sends 'vital-signs', Foundry has 'Vital signs'
