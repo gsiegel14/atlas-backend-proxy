@@ -164,13 +164,13 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
     }
 
     const payload = {
-      filter: {
-        patientId: {
-          $eq: patientId
-        }
+      where: {
+        type: "eq",
+        field: "patientId", 
+        value: patientId
       },
       pageSize,
-      sort: [
+      orderBy: [
         {
           field: sortField,
           direction: sortDirection
