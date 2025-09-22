@@ -8,9 +8,8 @@ const router = express.Router();
 
 const CLINICAL_NOTES_CACHE_TTL_MS = 30 * 1000;
 const clinicalNotesCache = new Map();
-// Try using object type 'A' like the working patient profile
-// ClinicalNotes object type might not exist or might be causing issues
-const clinicalNotesObjectType = process.env.FOUNDRY_CLINICAL_NOTES_OBJECT_TYPE || 'A';
+// Use ClinicalNotes object type as specified in the API documentation
+const clinicalNotesObjectType = process.env.FOUNDRY_CLINICAL_NOTES_OBJECT_TYPE || 'ClinicalNotes';
 
 // Initialize Foundry service
 const foundryService = new FoundryService({
@@ -160,7 +159,8 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
       return res.json(cached.payload);
     }
 
-    const ontologyId = foundryService.ontologyRid || process.env.FOUNDRY_ONTOLOGY_RID;
+    // Use the same hardcoded ontology RID as the working patient profile
+    const ontologyId = 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
     if (!ontologyId) {
       throw new Error('Foundry clinical notes ontology RID is not configured');
     }
