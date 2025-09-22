@@ -35,6 +35,7 @@ iOS App (Auth0) → Backend Proxy → Foundry APIs
 ### Foundry Endpoints
 - `POST /api/v1/foundry/actions/:actionId/invoke` - Invoke Foundry actions
 - `POST /api/v1/foundry/query` - Execute SQL queries
+- `GET /api/v1/foundry/clinical-notes` - Search ontology-backed clinical notes by patient
 - `GET /api/v1/foundry/ontology/metadata` - Get ontology metadata
 
 ## Environment Configuration
