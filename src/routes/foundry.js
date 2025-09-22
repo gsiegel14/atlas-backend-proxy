@@ -8,7 +8,7 @@ const router = express.Router();
 
 const CLINICAL_NOTES_CACHE_TTL_MS = 30 * 1000;
 const clinicalNotesCache = new Map();
-const clinicalNotesObjectType = process.env.FOUNDRY_CLINICAL_NOTES_OBJECT_TYPE || 'ClinicalNotes';
+const clinicalNotesObjectType = process.env.FOUNDRY_CLINICAL_NOTES_OBJECT_TYPE || 'A';
 
 // Initialize Foundry service
 const foundryService = new FoundryService({
