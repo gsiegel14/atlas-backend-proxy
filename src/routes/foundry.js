@@ -505,8 +505,13 @@ router.get('/observations', validateTokenWithScopes(['read:patient']), async (re
       });
     }
 
+    // Test: Try without category filter first to see if we get any observations
     const payload = {
-      where: filters.length === 1 ? filters[0] : { type: 'and', value: filters }
+      where: {
+        type: 'eq',
+        field: 'patientId',
+        value: testPatientId
+      }
     };
 
     if (pageSize && pageSize > 0) {
