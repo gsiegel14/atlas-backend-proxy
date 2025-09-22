@@ -510,7 +510,7 @@ router.get('/observations', validateTokenWithScopes(['read:patient']), async (re
       'vital-signs': 'Vital signs',  // iOS sends 'vital-signs', Foundry has 'Vital signs'
       'laboratory': 'Laboratory',    // iOS sends 'laboratory', Foundry has 'Laboratory'
       'survey': 'Survey',            // iOS sends 'survey', Foundry has 'Survey'
-      'exam': 'Laboratory'           // iOS sends 'exam', map to 'Laboratory' as fallback
+      'exam': 'Exam'                 // iOS sends 'exam', Foundry has 'Exam'
     };
 
     const mappedCategory = categoryParam ? categoryMapping[categoryParam] || categoryParam : null;
