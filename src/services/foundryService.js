@@ -164,9 +164,15 @@ export class FoundryService {
   }
 
   // Wrapper method for circuit breaker protected API calls
-  async apiCall(method, endpoint, data = null, headers = {}) {
+  async apiCall(method, endpoint, data = null, headers = {}, queryParams = {}) {
     try {
-      return await this.apiCircuit.fire(method, endpoint, data, headers);
+      // Add query parameters to the endpoint if provided
+      let finalEndpoint = endpoint;
+      if (queryParams && Object.keys(queryParams).length > 0) {
+        const params = new URLSearchParams(queryParams).toString();
+        finalEndpoint = `${endpoint}?${params}`;
+      }
+      return await this.apiCircuit.fire(method, finalEndpoint, data, headers);
     } catch (error) {
       if (error.message === 'Circuit breaker is open') {
         throw new Error('Foundry service temporarily unavailable');
@@ -487,5 +493,49 @@ export class FoundryService {
 
   async uploadDocument(patientId, documentData) {
     return this.apiCall('POST', `/api/v1/patient/${patientId}/documents`, documentData);
+  }
+
+  // Get media item reference for profile photos and other media
+  async getMediaReference(mediaSetRid, mediaItemRid) {
+    const endpoint = `/api/v2/mediasets/${mediaSetRid}/items/${mediaItemRid}/reference`;
+    
+    logger.debug('Fetching media reference', {
+      mediaSetRid,
+      mediaItemRid
+    });
+
+    try {
+      const result = await this.apiCall('GET', endpoint, null, {}, { preview: true });
+      return result;
+    } catch (error) {
+      logger.error('Failed to fetch media reference:', {
+        mediaSetRid,
+        mediaItemRid,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  // Get media item content (actual image data)
+  async getMediaContent(mediaSetRid, mediaItemRid) {
+    const endpoint = `/api/v2/mediasets/${mediaSetRid}/items/${mediaItemRid}/content`;
+    
+    logger.debug('Fetching media content', {
+      mediaSetRid,
+      mediaItemRid
+    });
+
+    try {
+      const result = await this.apiCall('GET', endpoint, null, {}, { preview: true });
+      return result;
+    } catch (error) {
+      logger.error('Failed to fetch media content:', {
+        mediaSetRid,
+        mediaItemRid,
+        error: error.message
+      });
+      throw error;
+    }
   }
 }

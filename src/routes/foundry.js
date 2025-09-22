@@ -1,6 +1,7 @@
 import express from 'express';
 import { validateTokenWithScopes } from '../middleware/auth0.js';
 import { FoundryService } from '../services/foundryService.js';
+import { client as osdkClient, osdkHost, osdkOntologyRid } from '../osdk/client.js';
 import { logger } from '../utils/logger.js';
 
 const router = express.Router();
@@ -142,19 +143,85 @@ router.post('/query', validateTokenWithScopes(['execute:queries']), async (req, 
   }
 });
 
+// Get media reference for profile photos and other media
+router.get('/media/:mediaSetRid/items/:mediaItemRid/reference', validateTokenWithScopes(['read:patient']), async (req, res, next) => {
+  try {
+    const { mediaSetRid, mediaItemRid } = req.params;
+
+    logger.info('Fetching media reference', {
+      mediaSetRid,
+      mediaItemRid,
+      user: req.user.sub,
+      correlationId: req.correlationId
+    });
+
+    const mediaReference = await foundryService.getMediaReference(mediaSetRid, mediaItemRid);
+
+    res.json({
+      success: true,
+      data: mediaReference,
+      timestamp: new Date().toISOString(),
+      correlationId: req.correlationId
+    });
+
+  } catch (error) {
+    logger.error('Failed to fetch media reference:', {
+      error: error.message,
+      user: req.user.sub,
+      correlationId: req.correlationId
+    });
+    next(error);
+  }
+});
+
+// Get media content (actual image data)
+router.get('/media/:mediaSetRid/items/:mediaItemRid/content', validateTokenWithScopes(['read:patient']), async (req, res, next) => {
+  try {
+    const { mediaSetRid, mediaItemRid } = req.params;
+
+    logger.info('Fetching media content', {
+      mediaSetRid,
+      mediaItemRid,
+      user: req.user.sub,
+      correlationId: req.correlationId
+    });
+
+    const mediaContent = await foundryService.getMediaContent(mediaSetRid, mediaItemRid);
+
+    // If the content is binary image data, set appropriate headers
+    if (mediaContent && mediaContent.contentType) {
+      res.setHeader('Content-Type', mediaContent.contentType);
+    }
+
+    res.send(mediaContent);
+
+  } catch (error) {
+    logger.error('Failed to fetch media content:', {
+      error: error.message,
+      user: req.user.sub,
+      correlationId: req.correlationId
+    });
+    next(error);
+  }
+});
+
 // Get patient profile by user_id
 router.get('/patient/profile', validateTokenWithScopes(['read:patient']), async (req, res, next) => {
   try {
-    const userId = req.user.sub; // Use the authenticated user's ID
-    
+    const userId = req.user.sub; // Authenticated user's ID (Auth0)
+
     logger.info('Fetching patient profile', {
       userId,
       correlationId: req.correlationId
     });
 
-    const profile = await foundryService.getPatientProfile(userId);
+    // Use OSDK to search object type 'A' by user_id, matching the working curl flow
+    const patientObjects = osdkClient('A');
+    const page = await patientObjects
+      .where({ user_id: { $eq: userId } })
+      .fetchPage({ $pageSize: 1 });
 
-    if (!profile) {
+    if (!Array.isArray(page.data) || page.data.length === 0) {
       return res.status(404).json({
         error: {
           code: 'PROFILE_NOT_FOUND',
@@ -165,9 +232,33 @@ router.get('/patient/profile', validateTokenWithScopes(['read:patient']), async 
       });
     }
 
+    const properties = JSON.parse(JSON.stringify(page.data[0]));
+    const rid = properties.$primaryKey ?? properties.$rid ?? properties.rid ?? properties.id ?? null;
+
+    // Check if the patient has a profile photo
+    let photoUrl = null;
+    if (properties.profilePhotoMediaSetRid && properties.profilePhotoMediaItemRid) {
+      // Construct the URL for fetching the photo through our proxy
+      photoUrl = `/api/v1/foundry/media/${properties.profilePhotoMediaSetRid}/items/${properties.profilePhotoMediaItemRid}/content`;
+      logger.info('Patient has profile photo', {
+        mediaSetRid: properties.profilePhotoMediaSetRid,
+        mediaItemRid: properties.profilePhotoMediaItemRid,
+        correlationId: req.correlationId
+      });
+    }
+
     res.json({
       success: true,
-      data: profile,
+      data: {
+        rid,
+        properties: {
+          ...properties,
+          profilePhotoUrl: photoUrl // Add the photo URL to the response
+        },
+        ontologyId: osdkOntologyRid,
+        sourceURL: `${osdkHost}/api/v2/ontologies/${osdkOntologyRid}/objects/A/search`,
+        httpStatus: 200
+      },
       timestamp: new Date().toISOString(),
       correlationId: req.correlationId
     });

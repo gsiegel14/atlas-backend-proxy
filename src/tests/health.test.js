@@ -1,5 +1,16 @@
 import request from 'supertest';
-import app from '../server.js';
+
+let app;
+
+beforeAll(async () => {
+  process.env.FOUNDRY_ONTOLOGY_RID = process.env.FOUNDRY_ONTOLOGY_RID
+    || 'ri.ontology.main.ontology.00000000-0000-0000-0000-000000000000';
+  process.env.FOUNDRY_TOKEN = process.env.FOUNDRY_TOKEN || 'test-token';
+
+  if (!app) {
+    ({ default: app } = await import('../server.js'));
+  }
+});
 
 describe('Health Endpoints', () => {
   describe('GET /health', () => {

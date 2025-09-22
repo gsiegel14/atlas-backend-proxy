@@ -16,16 +16,10 @@ const foundryService = new FoundryService({
 });
 
 function resolveUserIdentifiers(req) {
-  const identifiers = [];
-  const username = req.context?.username;
-  if (username) {
-    identifiers.push(username);
-  }
-  const sub = req.user?.sub;
-  if (sub && sub !== username) {
-    identifiers.push(sub);
-  }
-  return identifiers;
+  const username = typeof req.context?.username === 'string'
+    ? req.context.username.trim()
+    : undefined;
+  return username ? [username] : [];
 }
 
 router.get('/uploads', validateTokenWithScopes(['read:patient']), async (req, res, next) => {

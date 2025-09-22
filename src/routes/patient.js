@@ -21,12 +21,54 @@ const foundryService = new FoundryService({
 router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboard']), async (req, res, next) => {
   try {
     const { patientId } = req.body;
-    
-    if (!patientId) {
+
+    let effectivePatientId = patientId;
+
+    // If patientId is not provided, attempt to resolve it via OSDK search using user identity
+    if (!effectivePatientId) {
+      const identifierCandidates = [
+        typeof req.context?.username === 'string' ? req.context.username : undefined,
+        req.user?.sub
+      ].filter(Boolean);
+
+      const patientObjects = osdkClient('A');
+
+      for (const identifier of identifierCandidates) {
+        try {
+          const page = await patientObjects.where({ user_id: { $eq: identifier } }).fetchPage({ $pageSize: 1 });
+          if (page.data.length > 0) {
+            const properties = JSON.parse(JSON.stringify(page.data[0]));
+            effectivePatientId = properties.patientId
+              ?? properties.user_id
+              ?? properties.userId
+              ?? properties.$primaryKey
+              ?? properties.$rid
+              ?? null;
+
+            logger.info('Resolved patientId via OSDK search', {
+              identifierType: 'user_id',
+              identifier,
+              resolvedPatientId: effectivePatientId,
+              correlationId: req.correlationId
+            });
+            break;
+          }
+        } catch (error) {
+          logger.warn('OSDK patientId resolution attempt failed', {
+            identifierType: 'user_id',
+            identifier,
+            error: error.message,
+            correlationId: req.correlationId
+          });
+        }
+      }
+    }
+
+    if (!effectivePatientId) {
       return res.status(400).json({
         error: {
           code: 'MISSING_PATIENT_ID',
-          message: 'Patient ID is required',
+          message: 'Patient ID is required and could not be resolved from identity',
           correlationId: req.correlationId,
           timestamp: new Date().toISOString()
         }
@@ -34,7 +76,7 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
     }
 
     logger.info('Fetching patient dashboard', {
-      patientId,
+      patientId: effectivePatientId,
       user: req.user.sub,
       username: req.context?.username,
       correlationId: req.correlationId
@@ -42,7 +84,7 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
 
     // Call Foundry action to get patient dashboard
     const dashboardData = await foundryService.invokeAction('getPatientDashboard', {
-      patientId,
+      patientId: effectivePatientId,
       userId: req.user.sub,
       username: req.context?.username
     });
