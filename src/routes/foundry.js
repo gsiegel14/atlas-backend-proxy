@@ -8,7 +8,9 @@ const router = express.Router();
 
 const CLINICAL_NOTES_CACHE_TTL_MS = 30 * 1000;
 const clinicalNotesCache = new Map();
-const clinicalNotesObjectType = process.env.FOUNDRY_CLINICAL_NOTES_OBJECT_TYPE || 'ClinicalNotes';
+// Try using object type 'A' like the working patient profile
+// ClinicalNotes object type might not exist or might be causing issues
+const clinicalNotesObjectType = process.env.FOUNDRY_CLINICAL_NOTES_OBJECT_TYPE || 'A';
 
 // Initialize Foundry service
 const foundryService = new FoundryService({
@@ -180,10 +182,11 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
       payload.pageSize = pageSize;
     }
     
-    // Add orderBy back with correct structure (try both formats)
-    if (sortField && sortDirection) {
-      payload.orderBy = [{ field: sortField, direction: sortDirection }];
-    }
+    // Remove orderBy for now - it's causing InvalidFieldType errors
+    // The ClinicalNotes object type might not support ordering
+    // if (sortField && sortDirection) {
+    //   payload.orderBy = [{ field: sortField, direction: sortDirection }];
+    // }
 
     if (pageToken) {
       payload.pageToken = pageToken;
