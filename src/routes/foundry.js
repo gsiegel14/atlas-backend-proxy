@@ -163,18 +163,18 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
       throw new Error('Foundry clinical notes ontology RID is not configured');
     }
 
+    // Hardcode patient ID for testing clinical notes
+    const testPatientId = "7c2f5a19-087b-8b19-1070-800857d62e92";
+    
     const payload = {
       where: {
         type: "eq",
         field: "patientId", 
-        value: patientId
+        value: testPatientId
       },
       pageSize,
       orderBy: [
-        {
-          field: sortField,
-          direction: sortDirection
-        }
+        [sortField, sortDirection]
       ]
     };
 
@@ -183,7 +183,8 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
     }
 
     logger.info('Fetching clinical notes from Foundry', {
-      patientId,
+      requestedPatientId: patientId,
+      actualPatientId: testPatientId,
       pageSize,
       sortField,
       sortDirection,
