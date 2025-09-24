@@ -412,31 +412,30 @@ function respondMissingPatientId(req, res, routeName) {
 
 function buildPatientFilter(patientId) {
   const normalized = typeof patientId === 'string' ? patientId.trim() : patientId;
-  const filters = [];
-
-  if (normalized) {
-    // Prioritize Auth0 fields when building patient filters
-    // Order matters: auth0id first, then other Auth0 variants, then generic fields
-    const targetFields = ['auth0id', 'auth0_user_id', 'patientId', 'user_id', 'userId'];
-    const seen = new Set();
-    for (const field of targetFields) {
-      if (field && !seen.has(field)) {
-        filters.push({
-          type: 'eq',
-          field,
-          value: normalized
-        });
-        seen.add(field);
-      }
-    }
-  }
-
-  if (filters.length === 0) {
+  
+  if (!normalized) {
     return null;
   }
 
-  if (filters.length === 1) {
-    return filters[0];
+  // For Auth0 user IDs (auth0|xxx format), use auth0id field directly
+  if (normalized.startsWith('auth0|')) {
+    return {
+      type: 'eq',
+      field: 'auth0id',
+      value: normalized
+    };
+  }
+
+  // For non-Auth0 IDs, fall back to multiple field search
+  const targetFields = ['auth0id', 'auth0_user_id', 'patientId', 'user_id', 'userId'];
+  const filters = [];
+  
+  for (const field of targetFields) {
+    filters.push({
+      type: 'eq',
+      field,
+      value: normalized
+    });
   }
 
   return {
@@ -1046,11 +1045,7 @@ router.get('/immunizations', validateTokenWithScopes(['read:patient']), async (r
     const filters = [];
     const patientFilter = buildPatientFilter(patientId);
     if (patientFilter) {
-      if (patientFilter.type === 'or') {
-        filters.push(...patientFilter.value);
-      } else {
-        filters.push(patientFilter);
-      }
+      filters.push(patientFilter);
     }
 
     const payload = {
@@ -1265,11 +1260,7 @@ router.get('/observations', validateTokenWithScopes(['read:patient']), async (re
     const filters = [];
     const patientFilter = buildPatientFilter(patientId);
     if (patientFilter) {
-      if (patientFilter.type === 'or') {
-        filters.push(...patientFilter.value);
-      } else {
-        filters.push(patientFilter);
-      }
+      filters.push(patientFilter);
     }
 
     if (mappedCategory) {
@@ -1494,11 +1485,7 @@ router.get('/allergies', validateTokenWithScopes(['read:patient']), async (req, 
     const filters = [];
     const patientFilter = buildPatientFilter(patientId);
     if (patientFilter) {
-      if (patientFilter.type === 'or') {
-        filters.push(...patientFilter.value);
-      } else {
-        filters.push(patientFilter);
-      }
+      filters.push(patientFilter);
     }
 
     const payload = {
