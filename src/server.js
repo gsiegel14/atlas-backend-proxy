@@ -21,6 +21,7 @@ import { foundryRouter } from './routes/foundry.js';
 import { debugRouter } from './routes/debug.js';
 import { medicationsRouter } from './routes/medications.js';
 import { historyRouter } from './routes/history.js';
+import { intraencounterRouter } from './routes/intraencounter.js';
 import { usernamePropagation } from './middleware/usernamePropagation.js';
 
 dotenv.config();
@@ -96,6 +97,7 @@ app.use('/api/v1/patient', createRateLimiter(100, redisClient), patientRouter);
 app.use('/api/v1/foundry', createRateLimiter(50, redisClient), foundryRouter);
 app.use('/api/v1/medications', createRateLimiter(50, redisClient), medicationsRouter);
 app.use('/api/v1/history', createRateLimiter(50, redisClient), historyRouter);
+app.use('/api/v1/intraencounter', createRateLimiter(50, redisClient), intraencounterRouter);
 
 // JWT-specific error handling (must come before general error handler)
 app.use(jwtErrorHandler);

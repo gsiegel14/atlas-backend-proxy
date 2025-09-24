@@ -43,6 +43,8 @@ services:
         value: MedicationsUpload
       - key: FOUNDRY_CHAT_HISTORY_ACTION_ID
         value: create-ai-chat-history-production
+      - key: FOUNDRY_INTRAENCOUNTER_ACTION_ID
+        value: create-atlas-intraencounter-production
     disk:
       name: atlas-backend-proxy-disk
       mountPath: /opt/render/project/logs

@@ -1,20 +1,8 @@
 export default {
   testEnvironment: 'node',
+  setupFilesAfterEnv: ['<rootDir>/src/tests/setup.js'],
   transform: {},
-  globals: {
-    'ts-jest': {
-      useESM: true
-    }
-  },
-  testMatch: [
-    '**/src/tests/**/*.test.js'
-  ],
-  collectCoverageFrom: [
-    'src/**/*.js',
-    '!src/tests/**',
-    '!src/server.js'
-  ],
-  coverageDirectory: 'coverage',
-  coverageReporters: ['text', 'lcov', 'html'],
-  setupFiles: ['<rootDir>/src/tests/setup.js']
+  moduleNameMapper: {
+    '^(\\.{1,2}/.*)\\.js$': '$1.js'
+  }
 };

@@ -30,6 +30,123 @@ const proceduresObjectType = process.env.FOUNDRY_PROCEDURES_OBJECT_TYPE || 'Fast
 const immunizationsObjectType = process.env.FOUNDRY_IMMUNIZATIONS_OBJECT_TYPE || 'FastenImmunizations';
 const allergiesObjectType = process.env.FOUNDRY_ALLERGIES_OBJECT_TYPE || 'FastenAllergies';
 
+function normalizeClinicalNoteEntry(entry) {
+  const base = entry && typeof entry === 'object' ? entry : {};
+  const properties = base.properties && typeof base.properties === 'object' ? base.properties : base;
+
+  const resolvedNoteId = properties.noteId
+    || properties.note_id
+    || properties.documentId
+    || properties.document_id
+    || base.noteId
+    || base.note_id
+    || properties.$primaryKey
+    || base.$primaryKey
+    || properties.$rid
+    || base.$rid
+    || properties.id
+    || base.id
+    || properties.rid
+    || base.rid;
+
+  const resolvedTitle = properties.title
+    || properties.noteTitle
+    || properties.documentTitle
+    || properties.name
+    || properties.subject
+    || base.title
+    || base.noteTitle;
+
+  const resolvedDocumentType = properties.documentType
+    || properties.document_type
+    || properties.type
+    || properties.noteCategory
+    || properties.category
+    || base.documentType
+    || base.type;
+
+  const resolvedDocumentDate = properties.documentDate
+    || properties.document_date
+    || properties.date
+    || properties.noteDate
+    || properties.serviceDate
+    || properties.encounterDate
+    || base.documentDate
+    || base.date;
+
+  const resolvedAuthor = properties.author
+    || properties.signedBy
+    || properties.provider
+    || properties.clinician
+    || properties.authorName
+    || base.author
+    || base.provider;
+
+  const resolvedStatus = properties.status
+    || properties.state
+    || base.status
+    || base.state;
+
+  const resolvedNoteText = properties.noteText
+    || properties.text
+    || properties.content
+    || properties.body
+    || properties.cleanText
+    || properties.rawContent
+    || base.noteText
+    || base.text
+    || base.body;
+
+  const resolvedEncounterId = properties.encounterId
+    || properties.encounter_id
+    || properties.encounter
+    || base.encounterId
+    || base.encounter_id;
+
+  const normalized = { ...properties };
+
+  if (resolvedNoteId) {
+    normalized.noteId = resolvedNoteId;
+    if (!normalized.id) {
+      normalized.id = resolvedNoteId;
+    }
+  }
+
+  if (resolvedTitle && !normalized.title) {
+    normalized.title = resolvedTitle;
+  }
+
+  if (resolvedDocumentType && !normalized.documentType) {
+    normalized.documentType = resolvedDocumentType;
+  }
+
+  if (resolvedDocumentDate && !normalized.documentDate) {
+    normalized.documentDate = resolvedDocumentDate;
+  }
+
+  if (resolvedAuthor && !normalized.author) {
+    normalized.author = resolvedAuthor;
+  }
+
+  if (resolvedStatus && !normalized.status) {
+    normalized.status = resolvedStatus;
+  }
+
+  if (resolvedNoteText && !normalized.noteText) {
+    normalized.noteText = resolvedNoteText;
+  }
+
+  if (resolvedEncounterId && !normalized.encounterId) {
+    normalized.encounterId = resolvedEncounterId;
+  }
+
+  if (!normalized.patientId && base.patientId) {
+    normalized.patientId = base.patientId;
+  }
+
+  return normalized;
+}
+
 function normalizeProcedureEntry(entry) {
   const base = entry && typeof entry === 'object' ? entry : {};
   const properties = base.properties && typeof base.properties === 'object' ? base.properties : base;
@@ -431,17 +548,17 @@ function buildPatientFilter(patientId) {
     return null;
   }
 
-  // For Auth0 user IDs (auth0|xxx format), use user_id field directly
+  // For Auth0 user IDs (auth0|xxx format), use auth0id field directly
   if (normalized.startsWith('auth0|')) {
     return {
       type: 'eq',
-      field: 'user_id',
+      field: 'auth0id',
       value: normalized
     };
   }
 
   // For non-Auth0 IDs, fall back to multiple field search
-  const targetFields = ['user_id', 'userId', 'patientId', 'patient_id'];
+  const targetFields = ['patientId', 'userId', 'patient_id', 'user_id'];
   const filters = [];
   
   for (const field of targetFields) {
@@ -669,15 +786,9 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
       rawEntries.push(...result.entries);
     }
 
-    const notes = rawEntries.map((entry) => {
-      if (entry && typeof entry === 'object') {
-        if (entry.properties && typeof entry.properties === 'object') {
-          return entry.properties;
-        }
-        return entry;
-      }
-      return {};
-    });
+    const notes = rawEntries
+      .map((entry) => normalizeClinicalNoteEntry(entry))
+      .filter((note) => note && typeof note === 'object' && (note.noteId || note.id));
 
     const responsePayload = {
       success: true,
@@ -686,6 +797,13 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
       fetchedAt: new Date().toISOString(),
       correlationId: req.correlationId
     };
+
+    logger.info('Foundry clinical notes response', {
+      patientId,
+      count: notes.length,
+      nextPageToken: responsePayload.nextPageToken,
+      correlationId: req.correlationId
+    });
 
     clinicalNotesCache.set(cacheKey, {
       expiresAt: now + CLINICAL_NOTES_CACHE_TTL_MS,
@@ -2097,6 +2215,158 @@ router.get('/patient/profile', validateTokenWithScopes(['read:patient']), async 
       user: req.user.sub,
       correlationId: req.correlationId
     });
+    next(error);
+  }
+});
+
+// Handle direct media item RID requests
+router.get('/ri.mio.main.media-item.:mediaItemId', validateTokenWithScopes(['read:patient']), async (req, res, next) => {
+  try {
+    const { mediaItemId } = req.params;
+    
+    logger.info('Fetching media item by RID', {
+      mediaItemId,
+      userId: req.user?.sub
+    });
+
+    // Try to resolve the media item through Foundry
+    const foundryService = new FoundryService({
+      host: osdkHost,
+      clientId: process.env.FOUNDRY_CLIENT_ID,
+      clientSecret: process.env.FOUNDRY_CLIENT_SECRET,
+      tokenUrl: process.env.FOUNDRY_TOKEN_URL,
+      ontologyRid: osdkOntologyRid
+    });
+
+    // For now, return a 404 with helpful information
+    // TODO: Implement proper media item resolution
+    res.status(404).json({
+      error: 'Media item not found',
+      mediaItemId,
+      message: 'Direct media item access not yet implemented',
+      suggestion: 'Use /api/v1/foundry/media/:mediaSetRid/items/:mediaItemRid/reference instead'
+    });
+
+  } catch (error) {
+    logger.error('Error fetching media item:', {
+      error: error.message,
+      mediaItemId: req.params.mediaItemId
+    });
+    next(error);
+  }
+});
+
+// Create media upload action endpoint
+router.post('/actions/create-media/apply', validateTokenWithScopes(['execute:actions']), async (req, res, next) => {
+  try {
+    const { parameters = {}, options = {} } = req.body;
+    
+    logger.info('Creating media via Foundry action', {
+      userId: req.user?.sub,
+      hasFilename: Boolean(parameters.filename),
+      hasData: Boolean(parameters.data_base64),
+      contentType: parameters.content_type
+    });
+
+    const foundryService = new FoundryService({
+      host: osdkHost,
+      clientId: process.env.FOUNDRY_CLIENT_ID,
+      clientSecret: process.env.FOUNDRY_CLIENT_SECRET,
+      tokenUrl: process.env.FOUNDRY_TOKEN_URL,
+      ontologyRid: osdkOntologyRid
+    });
+
+    // Apply the create-media action
+    const result = await foundryService.applyOntologyAction('create-media', parameters, options);
+    
+    logger.info('Media creation successful', {
+      userId: req.user?.sub,
+      filename: parameters.filename
+    });
+
+    res.json(result);
+
+  } catch (error) {
+    logger.error('Error creating media:', {
+      error: error.message,
+      status: error.status,
+      foundryError: error.foundryError,
+      userId: req.user?.sub
+    });
+    
+    if (error.status === 404) {
+      return res.status(404).json({
+        error: 'Media creation action not found',
+        message: 'The create-media action may not be configured in the Foundry ontology',
+        foundryError: error.foundryError
+      });
+    }
+    
+    next(error);
+  }
+});
+
+// Generic media upload endpoint for various media types
+router.post('/media/upload', validateTokenWithScopes(['execute:actions']), async (req, res, next) => {
+  try {
+    const { filename, contentType, data, mediaType = 'general' } = req.body;
+    
+    if (!filename || !data) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        required: ['filename', 'data']
+      });
+    }
+
+    logger.info('Uploading media file', {
+      userId: req.user?.sub,
+      filename,
+      contentType,
+      mediaType,
+      dataSize: data.length
+    });
+
+    const foundryService = new FoundryService({
+      host: osdkHost,
+      clientId: process.env.FOUNDRY_CLIENT_ID,
+      clientSecret: process.env.FOUNDRY_CLIENT_SECRET,
+      tokenUrl: process.env.FOUNDRY_TOKEN_URL,
+      ontologyRid: osdkOntologyRid
+    });
+
+    // Try to create media using the create-media action
+    const parameters = {
+      filename,
+      content_type: contentType || 'application/octet-stream',
+      data_base64: data,
+      media_type: mediaType,
+      user_id: req.user?.sub
+    };
+
+    const result = await foundryService.applyOntologyAction('create-media', parameters);
+    
+    logger.info('Media upload successful', {
+      userId: req.user?.sub,
+      filename,
+      mediaType
+    });
+
+    res.json({
+      success: true,
+      filename,
+      mediaType,
+      result
+    });
+
+  } catch (error) {
+    logger.error('Error uploading media:', {
+      error: error.message,
+      status: error.status,
+      foundryError: error.foundryError,
+      userId: req.user?.sub,
+      filename: req.body?.filename
+    });
+    
     next(error);
   }
 });

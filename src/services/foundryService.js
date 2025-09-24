@@ -18,6 +18,9 @@ export class FoundryService {
     this.chatHistoryActionId = config.chatHistoryActionId
       || process.env.FOUNDRY_CHAT_HISTORY_ACTION_ID
       || 'create-ai-chat-history-production';
+    this.intraencounterActionId = config.intraencounterActionId
+      || process.env.FOUNDRY_INTRAENCOUNTER_ACTION_ID
+      || 'create-atlas-intraencounter-production';
     
     this.tokenCache = new Map();
     
@@ -222,6 +225,9 @@ export class FoundryService {
       throw new Error('Foundry ontology RID is not configured');
     }
 
+    // Convert to API format if needed (from OSDK format)
+    const apiOntologyId = this.getApiOntologyRid(ontologyId);
+
     const canonicalActionIds = new Set();
     if (actionId) {
       canonicalActionIds.add(actionId);
@@ -231,9 +237,9 @@ export class FoundryService {
     }
 
     const prefixes = [
-      `/api/v2/ontologies/${ontologyId}/actions`,
-      `/ontology/api/v2/ontologies/${ontologyId}/actions`,
-      `/v2/ontologies/${ontologyId}/actions`
+      `/api/v2/ontologies/${apiOntologyId}/actions`,
+      `/ontology/api/v2/ontologies/${apiOntologyId}/actions`,
+      `/v2/ontologies/${apiOntologyId}/actions`
     ];
 
     const endpoints = new Set();
@@ -411,6 +417,53 @@ export class FoundryService {
     });
 
     return this.applyOntologyAction(this.medicationsActionId, actionParams, options);
+  }
+
+  async createIntraencounterProduction({
+    userId,
+    timestamp,
+    audiofile,
+    transcript,
+    location,
+    providerName,
+    provider_name,
+    speciality,
+    hospital,
+    additionalParameters = {},
+    options = {}
+  }) {
+    if (!userId) {
+      throw new Error('userId is required to create an intra-encounter');
+    }
+    const normalizedTranscript = typeof transcript === 'string' ? transcript.trim() : '';
+    if (!normalizedTranscript) {
+      throw new Error('transcript is required to create an intra-encounter');
+    }
+    if (!audiofile) {
+      throw new Error('audiofile is required to create an intra-encounter');
+    }
+
+    const normalizedAudio = FoundryService.normalizeMediaReference(audiofile);
+
+    const actionParams = {
+      user_id: userId,
+      timestamp: timestamp || new Date().toISOString(),
+      audiofile: normalizedAudio,
+      transcript: normalizedTranscript,
+      location,
+      provider_name: provider_name || providerName,
+      speciality,
+      hospital,
+      ...additionalParameters
+    };
+
+    logger.info('Creating intra-encounter via Foundry action', {
+      userId,
+      hasLocation: Boolean(location),
+      hasProvider: Boolean(provider_name || providerName)
+    });
+
+    return this.applyOntologyAction(this.intraencounterActionId, actionParams, options);
   }
 
   async createChatHistoryEntry({
