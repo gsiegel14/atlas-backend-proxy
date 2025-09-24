@@ -518,38 +518,109 @@ export class FoundryService {
     });
   }
 
+  // Execute ontology query (like patientChat)
+  async executeOntologyQuery(queryName, parameters = {}) {
+    const ontologyRid = this.getApiOntologyRid();
+    if (!ontologyRid) {
+      throw new Error('Ontology RID is not configured');
+    }
+    
+    const endpoint = `/api/v2/ontologies/${ontologyRid}/queries/${queryName}/execute`;
+    return this.apiCall('POST', endpoint, {
+      parameters
+    });
+  }
+
   async searchOntologyObjects(ontologyId, objectTypePath, payload = {}) {
     const endpoint = `/api/v2/ontologies/${ontologyId}/objects/${objectTypePath}/search`;
     return this.apiCall('POST', endpoint, payload);
   }
 
-  // Get patient profile by user_id using the test ontology (where data currently exists)
+  // Get patient profile by Auth0 identity or patientId for the Fasten ontology
   async getPatientProfile(userId) {
     const ontologyRid = this.getApiOntologyRid();
     const objectType = 'A';
-    
-    const searchPayload = {
-      where: {
-        type: 'eq',
-        field: 'user_id',
-        value: userId
-      },
-      pageSize: 10
+    const identityFields = Array.from(new Set([
+      'auth0id',
+      'patientId',
+      'user_id',
+      'userId',
+      'auth0_user_id'
+    ]));
+
+    let lastRecoverableError = null;
+    let hadSuccessfulCall = false;
+
+    const pickFirstProfile = (result) => {
+      if (!result || typeof result !== 'object') {
+        return null;
+      }
+      const collections = [result.data, result.objects, result.results, result.entries]
+        .filter(Array.isArray);
+      for (const collection of collections) {
+        if (collection.length > 0) {
+          return collection[0];
+        }
+      }
+      if (result.properties && typeof result.properties === 'object') {
+        return { properties: result.properties };
+      }
+      return null;
     };
 
-    logger.debug('Searching for patient profile', {
+    for (const field of identityFields) {
+      const searchPayload = {
+        where: {
+          type: 'eq',
+          field,
+          value: userId
+        },
+        pageSize: 10
+      };
+
+      logger.debug('Searching for patient profile', {
+        userId,
+        ontologyRid,
+        objectType,
+        field
+      });
+
+      try {
+        const result = await this.searchOntologyObjects(ontologyRid, objectType, searchPayload);
+        hadSuccessfulCall = true;
+        const match = pickFirstProfile(result);
+        if (match) {
+          logger.debug('Found patient profile match', {
+            userId,
+            ontologyRid,
+            objectType,
+            matchedField: field
+          });
+          return match;
+        }
+      } catch (error) {
+        if (error.status === 400 || error.status === 404) {
+          logger.warn('Patient profile search failed for field', {
+            field,
+            status: error.status,
+            message: error.message
+          });
+          lastRecoverableError = error;
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    if (!hadSuccessfulCall && lastRecoverableError) {
+      throw lastRecoverableError;
+    }
+
+    logger.info('No patient profile found for user', {
       userId,
       ontologyRid,
       objectType
     });
-
-    const result = await this.searchOntologyObjects(ontologyRid, objectType, searchPayload);
-    
-    // Return the first matching profile or null if none found
-    if (result.data && result.data.length > 0) {
-      return result.data[0];
-    }
-    
     return null;
   }
 

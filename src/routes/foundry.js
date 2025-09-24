@@ -262,6 +262,13 @@ const encountersService = new EncountersService({
 function collectIdentityCandidates(req, allowQueryOverride = true) {
   const candidates = [];
 
+  // Primary: Always prioritize Auth0 user ID (auth0|xxx format)
+  const auth0Sub = typeof req.user?.sub === 'string' ? req.user.sub.trim() : '';
+  if (auth0Sub) {
+    candidates.push(auth0Sub);
+  }
+
+  // Secondary: Allow query override only if no Auth0 user ID or explicitly allowed
   if (allowQueryOverride) {
     const queryValue = typeof req.query.patientId === 'string' ? req.query.patientId.trim() : '';
     if (queryValue) {
@@ -269,21 +276,19 @@ function collectIdentityCandidates(req, allowQueryOverride = true) {
     }
   }
 
-  const auth0Sub = typeof req.user?.sub === 'string' ? req.user.sub.trim() : '';
-  if (auth0Sub) {
-    candidates.push(auth0Sub);
-  }
+  // Fallback: Username-like candidates (only if Auth0 user ID not available)
+  if (!auth0Sub) {
+    const usernameLikeCandidates = [
+      typeof req.context?.username === 'string' ? req.context.username.trim() : '',
+      typeof req.user?.preferred_username === 'string' ? req.user.preferred_username.trim() : '',
+      typeof req.user?.nickname === 'string' ? req.user.nickname.trim() : '',
+      typeof req.user?.email === 'string' ? req.user.email.trim() : ''
+    ];
 
-  const usernameLikeCandidates = [
-    typeof req.context?.username === 'string' ? req.context.username.trim() : '',
-    typeof req.user?.preferred_username === 'string' ? req.user.preferred_username.trim() : '',
-    typeof req.user?.nickname === 'string' ? req.user.nickname.trim() : '',
-    typeof req.user?.email === 'string' ? req.user.email.trim() : ''
-  ];
-
-  for (const candidate of usernameLikeCandidates) {
-    if (candidate) {
-      candidates.push(candidate);
+    for (const candidate of usernameLikeCandidates) {
+      if (candidate) {
+        candidates.push(candidate);
+      }
     }
   }
 
@@ -320,6 +325,8 @@ async function resolvePatientContext(
           ? profile.properties
           : profile;
         const candidatePatientId = properties.patientId
+          || properties.auth0id
+          || properties.auth0_user_id
           || properties.user_id
           || properties.userId
           || properties.atlasId
@@ -408,16 +415,20 @@ function buildPatientFilter(patientId) {
   const filters = [];
 
   if (normalized) {
-    filters.push({
-      type: 'eq',
-      field: 'patientId',
-      value: normalized
-    });
-    filters.push({
-      type: 'eq',
-      field: 'auth0id',
-      value: normalized
-    });
+    // Prioritize Auth0 fields when building patient filters
+    // Order matters: auth0id first, then other Auth0 variants, then generic fields
+    const targetFields = ['auth0id', 'auth0_user_id', 'patientId', 'user_id', 'userId'];
+    const seen = new Set();
+    for (const field of targetFields) {
+      if (field && !seen.has(field)) {
+        filters.push({
+          type: 'eq',
+          field,
+          value: normalized
+        });
+        seen.add(field);
+      }
+    }
   }
 
   if (filters.length === 0) {
@@ -1832,6 +1843,125 @@ router.post('/query', validateTokenWithScopes(['execute:queries']), async (req, 
     logger.error('Failed to execute SQL query:', {
       error: error.message,
       user: req.user.sub,
+      correlationId: req.correlationId
+    });
+    next(error);
+  }
+});
+
+// Helper function to resolve username from Auth0 token
+function pickFirstString(values = []) {
+  for (const value of values) {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  }
+  return undefined;
+}
+
+function resolveAuth0UserId(req, explicitCandidate) {
+  const headerCandidate = req.get('X-Auth0-Username');
+  const contextCandidate = pickFirstString([
+    req.context?.username,
+    req.user?.preferred_username,
+    req.user?.nickname,
+    req.user?.email
+  ]);
+  const auth0Sub = typeof req.user?.sub === 'string' ? req.user.sub.trim() : undefined;
+
+  const candidates = [
+    explicitCandidate,
+    headerCandidate,
+    auth0Sub,
+    contextCandidate
+  ].map((value) => (typeof value === 'string' ? value.trim() : undefined)).filter(Boolean);
+
+  const auth0Id = candidates.find((candidate) => candidate.startsWith('auth0|'));
+  return auth0Id || candidates[0];
+}
+
+// Execute patientChat ontology query
+router.post('/patient-chat', validateTokenWithScopes(['execute:queries']), async (req, res, next) => {
+  try {
+    const explicitUserId = pickFirstString([
+      req.body?.userid,
+      req.body?.user_id,
+      req.body?.patientId
+    ]);
+    const userInput = typeof req.body?.userinput === 'string' ? req.body.userinput.trim() : '';
+
+    if (!userInput) {
+      return res.status(400).json({
+        error: {
+          code: 'MISSING_USERINPUT',
+          message: 'userinput parameter is required and must be a non-empty string',
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    const resolvedUserId = resolveAuth0UserId(req, explicitUserId);
+    if (!resolvedUserId) {
+      return res.status(400).json({
+        error: {
+          code: 'MISSING_IDENTITY',
+          message: 'Unable to resolve Auth0 user identity for patient chat',
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    logger.info('Executing patientChat query via backend proxy', {
+      userid: resolvedUserId,
+      userinputLength: userInput.length,
+      correlationId: req.correlationId
+    });
+
+    const result = await foundryService.executeOntologyQuery('patientChat', {
+      userid: resolvedUserId,
+      userinput: userInput
+    });
+
+    let reply = '';
+    if (typeof result === 'string') {
+      reply = result.trim();
+    } else if (result && typeof result === 'object') {
+      if (typeof result.reply === 'string') {
+        reply = result.reply.trim();
+      } else if (typeof result.result === 'string') {
+        reply = result.result.trim();
+      } else if (typeof result.data === 'string') {
+        reply = result.data.trim();
+      }
+    }
+
+    if (!reply && Array.isArray(result?.data) && result.data.length > 0 && typeof result.data[0] === 'string') {
+      reply = result.data[0].trim();
+    }
+
+    if (!reply) {
+      reply = JSON.stringify(result ?? {});
+    }
+
+    res.json({
+      success: true,
+      data: {
+        reply,
+        raw: result
+      },
+      timestamp: new Date().toISOString(),
+      correlationId: req.correlationId
+    });
+
+  } catch (error) {
+    logger.error('Failed to execute patientChat query:', {
+      error: error.message,
+      stack: error.stack,
       correlationId: req.correlationId
     });
     next(error);
