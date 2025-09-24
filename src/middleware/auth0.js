@@ -5,9 +5,10 @@ import { logger } from '../utils/logger.js';
 // Official jwks-rsa integration compatible with express-jwt
 const jwksSecret = jwksRsa.expressJwtSecret({
   cache: true,
-  cacheMaxEntries: 5,
+  cacheMaxEntries: 10,
+  cacheMaxAge: 600000, // 10 minutes
   rateLimit: true,
-  jwksRequestsPerMinute: 10,
+  jwksRequestsPerMinute: 5, // Reduced from 10 to 5
   jwksUri: `https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`
 });
 

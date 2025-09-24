@@ -62,7 +62,8 @@ router.post('/chat', validateTokenWithScopes(['execute:actions']), async (req, r
 
     const resolvedUser = resolveUsername(req);
     const userIdFromBody = typeof req.body?.user_id === 'string' ? req.body.user_id.trim() : undefined;
-    const finalUserId = resolvedUser || userIdFromBody;
+    // Prefer explicit user_id from body (e.g., auth0|...) over header/claims-derived username
+    const finalUserId = userIdFromBody || resolvedUser;
 
     if (!finalUserId) {
       return res.status(400).json({
