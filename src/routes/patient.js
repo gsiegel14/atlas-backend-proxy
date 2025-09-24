@@ -141,7 +141,7 @@ router.post('/profile/search', validateTokenWithScopes(['read:patient']), async 
 
     const candidates = Array.isArray(fieldCandidates) && fieldCandidates.length > 0
       ? fieldCandidates
-      : ['auth0id', 'auth0_user_id', 'user_id', 'userId'];
+      : ['user_id', 'userId', 'patientId', 'patient_id'];
 
     const uniqueCandidates = Array.from(new Set(['patientId', ...candidates])).filter(Boolean);
     const requestedOntologyIds = Array.isArray(ontologyIds) ? ontologyIds : [];

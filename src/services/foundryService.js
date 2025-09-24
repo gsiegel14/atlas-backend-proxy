@@ -572,11 +572,10 @@ export class FoundryService {
     const ontologyRid = this.getApiOntologyRid();
     const objectType = 'A';
     const identityFields = Array.from(new Set([
-      'auth0id',
-      'patientId',
       'user_id',
       'userId',
-      'auth0_user_id'
+      'patientId',
+      'patient_id'
     ]));
 
     let lastRecoverableError = null;

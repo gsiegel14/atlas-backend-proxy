@@ -25,6 +25,7 @@ const encountersCache = new Map();
 const clinicalNotesObjectType = process.env.FOUNDRY_CLINICAL_NOTES_OBJECT_TYPE || 'FastenClinicalNotes';
 const conditionsObjectType = process.env.FOUNDRY_CONDITIONS_OBJECT_TYPE || 'FastenConditions';
 const observationsObjectType = process.env.FOUNDRY_OBSERVATIONS_OBJECT_TYPE || 'FastenObservations';
+const vitalsObjectType = process.env.FOUNDRY_VITALS_OBJECT_TYPE || 'FastenVitals';
 const proceduresObjectType = process.env.FOUNDRY_PROCEDURES_OBJECT_TYPE || 'FastenProcedures';
 const immunizationsObjectType = process.env.FOUNDRY_IMMUNIZATIONS_OBJECT_TYPE || 'FastenImmunizations';
 const allergiesObjectType = process.env.FOUNDRY_ALLERGIES_OBJECT_TYPE || 'FastenAllergies';
@@ -77,6 +78,8 @@ function normalizeObservationEntry(entry) {
 
   const rawObservationId = properties.observationId
     || properties.observation_id
+    || properties.vitalId
+    || properties.vital_id
     || base.observationId
     || base.observation_id
     || properties.id
@@ -89,16 +92,19 @@ function normalizeObservationEntry(entry) {
   const rawEffectiveDatetime = properties.effectiveDatetime
     || properties.effectiveDateTime
     || properties.observationDate
+    || properties.date
     || base.effectiveDatetime
     || base.effectiveDateTime
     || base.observationDate;
 
   const resolvedCategoryDisplay = properties.categoryDisplay
     || properties.category
+    || properties.vitalType
     || base.categoryDisplay
     || base.category;
 
   const resolvedCodeDisplay = properties.codeDisplay
+    || properties.vitalType
     || properties.display
     || base.codeDisplay
     || base.display;
@@ -112,6 +118,11 @@ function normalizeObservationEntry(entry) {
     ?? properties.valueQuantity
     ?? base.valueNumeric
     ?? base.valueQuantity;
+
+  const resolvedUnit = properties.valueUnit
+    || properties.unit
+    || base.valueUnit
+    || base.unit;
 
   const normalized = {
     ...properties,
@@ -155,12 +166,16 @@ function normalizeObservationEntry(entry) {
     normalized.valueNumeric = resolvedValueNumeric;
   }
 
-  if (!normalized.valueUnit && base.valueUnit) {
-    normalized.valueUnit = base.valueUnit;
+  if (!normalized.valueUnit && resolvedUnit) {
+    normalized.valueUnit = resolvedUnit;
   }
 
   if (!normalized.patientId && base.patientId) {
     normalized.patientId = base.patientId;
+  }
+
+  if (properties.vitalType && !normalized.vitalType) {
+    normalized.vitalType = properties.vitalType;
   }
 
   return normalized;
@@ -324,11 +339,10 @@ async function resolvePatientContext(
         const properties = profile.properties && typeof profile.properties === 'object'
           ? profile.properties
           : profile;
-        const candidatePatientId = properties.patientId
-          || properties.auth0id
-          || properties.auth0_user_id
-          || properties.user_id
+        const candidatePatientId = properties.user_id
           || properties.userId
+          || properties.patientId
+          || properties.patient_id
           || properties.atlasId
           || properties.$primaryKey
           || properties.$rid
@@ -417,17 +431,17 @@ function buildPatientFilter(patientId) {
     return null;
   }
 
-  // For Auth0 user IDs (auth0|xxx format), use auth0id field directly
+  // For Auth0 user IDs (auth0|xxx format), use user_id field directly
   if (normalized.startsWith('auth0|')) {
     return {
       type: 'eq',
-      field: 'auth0id',
+      field: 'user_id',
       value: normalized
     };
   }
 
   // For non-Auth0 IDs, fall back to multiple field search
-  const targetFields = ['auth0id', 'auth0_user_id', 'patientId', 'user_id', 'userId'];
+  const targetFields = ['user_id', 'userId', 'patientId', 'patient_id'];
   const filters = [];
   
   for (const field of targetFields) {
@@ -1167,6 +1181,7 @@ router.get('/observations', validateTokenWithScopes(['read:patient']), async (re
     }
 
     const categoryParam = typeof req.query.category === 'string' ? req.query.category.trim() : '';
+    const useFastenVitals = categoryParam === 'vital-signs';
 
     const parsedPageSize = Number.parseInt(req.query.pageSize, 10);
     const pageSize = Math.max(Math.min(Number.isFinite(parsedPageSize) ? parsedPageSize : 25, 100), 1);
@@ -1235,7 +1250,7 @@ router.get('/observations', validateTokenWithScopes(['read:patient']), async (re
       throw new Error('Foundry observations ontology RID is not configured');
     }
 
-    // Map iOS category values to the new Fasten Observations ontology fields
+    // Map iOS category values to ontology fields when using the general observations object type
     const categoryMapping = {
       'vital-signs': {
         code: 'vital-signs',
@@ -1255,7 +1270,9 @@ router.get('/observations', validateTokenWithScopes(['read:patient']), async (re
       }
     };
 
-    const mappedCategory = categoryParam ? categoryMapping[categoryParam] || { code: categoryParam } : null;
+    const mappedCategory = (!useFastenVitals && categoryParam)
+      ? categoryMapping[categoryParam] || { code: categoryParam }
+      : null;
 
     const filters = [];
     const patientFilter = buildPatientFilter(patientId);
@@ -1310,6 +1327,8 @@ router.get('/observations', validateTokenWithScopes(['read:patient']), async (re
     }
 
     // Log the request with category mapping for debugging
+    const objectType = useFastenVitals ? vitalsObjectType : observationsObjectType;
+
     logger.info('Fetching observations from Foundry', {
       patientId,
       category: categoryParam || null,
@@ -1321,13 +1340,13 @@ router.get('/observations', validateTokenWithScopes(['read:patient']), async (re
       sortDirection,
       pageToken,
       payload: JSON.stringify(payload),
-      ontologyObjectType: observationsObjectType,
+      ontologyObjectType: objectType,
       correlationId: req.correlationId
     });
 
     let result;
     try {
-      result = await foundryService.searchOntologyObjects(ontologyId, observationsObjectType, payload);
+      result = await foundryService.searchOntologyObjects(ontologyId, objectType, payload);
     } catch (error) {
       if (error.status === 429) {
         return res.status(503).json({
