@@ -15,6 +15,9 @@ export class FoundryService {
     this.medicationsUploadObjectType = config.medicationsUploadObjectType
       || process.env.FOUNDRY_MEDICATIONS_OBJECT_TYPE
       || 'MedicationsUpload';
+    this.chatHistoryActionId = config.chatHistoryActionId
+      || process.env.FOUNDRY_CHAT_HISTORY_ACTION_ID
+      || 'create-ai-chat-history-production';
     
     this.tokenCache = new Map();
     
@@ -408,6 +411,36 @@ export class FoundryService {
     });
 
     return this.applyOntologyAction(this.medicationsActionId, actionParams, options);
+  }
+
+  async createChatHistoryEntry({
+    userId,
+    transcript,
+    timestamp,
+    additionalParameters = {},
+    options = {}
+  }) {
+    if (!userId) {
+      throw new Error('userId is required to create a chat history entry');
+    }
+    const normalizedTranscript = typeof transcript === 'string' ? transcript.trim() : '';
+    if (!normalizedTranscript) {
+      throw new Error('transcript is required to create a chat history entry');
+    }
+
+    const actionParams = {
+      user_id: userId,
+      transcript: normalizedTranscript,
+      timestamp: timestamp || new Date().toISOString(),
+      ...additionalParameters
+    };
+
+    logger.info('Creating AI chat history entry via Foundry action', {
+      userId,
+      hasAdditionalParameters: Object.keys(additionalParameters || {}).length > 0
+    });
+
+    return this.applyOntologyAction(this.chatHistoryActionId, actionParams, options);
   }
 
   async listMedicationsUploads(userIdentifiers = [], { limit = 50 } = {}) {

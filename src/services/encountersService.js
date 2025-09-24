@@ -4,10 +4,10 @@ const DEFAULT_CACHE_TTL_MS = 30 * 1000;
 const MAX_PAGE_SIZE = 100;
 const MIN_PAGE_SIZE = 1;
 const ALLOWED_SORT_FIELDS = new Set([
-  'startDate',
-  'endDate',
-  'encounterType',
-  'encounterClass',
+  'periodStart',
+  'periodEnd',
+  'typeDisplay',
+  'classDisplay',
   'encounterId'
 ]);
 
@@ -20,7 +20,7 @@ export class EncountersService {
     this.foundryService = foundryService;
     this.cacheTtlMs = cacheTtlMs;
     this.cache = cache || new Map();
-    this.objectType = process.env.FOUNDRY_ENCOUNTERS_OBJECT_TYPE || 'Encounters';
+    this.objectType = process.env.FOUNDRY_ENCOUNTERS_OBJECT_TYPE || 'FastenEncounters';
   }
 
   async fetchEncounters({
@@ -58,11 +58,7 @@ export class EncountersService {
     }
 
     const payload = {
-      where: {
-        type: 'eq',
-        field: 'patientId',
-        value: patientId
-      },
+      where: buildEncounterPatientFilter(patientId),
       pageSize: normalizedPageSize
     };
 
@@ -125,7 +121,7 @@ function normalizePageSize(pageSize) {
 }
 
 function normalizeSort(sortParam) {
-  const fallback = { field: 'startDate', direction: 'DESC' };
+  const fallback = { field: 'periodStart', direction: 'DESC' };
   if (!sortParam || typeof sortParam !== 'string') {
     return fallback;
   }
@@ -160,6 +156,24 @@ function resolveOntologyRid(foundryService) {
     || 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
 }
 
+function buildEncounterPatientFilter(patientId) {
+  return {
+    type: 'or',
+    value: [
+      {
+        type: 'eq',
+        field: 'patientId',
+        value: patientId
+      },
+      {
+        type: 'eq',
+        field: 'auth0id',
+        value: patientId
+      }
+    ]
+  };
+}
+
 function extractEncounters(result) {
   const rawEntries = [];
 
@@ -176,15 +190,111 @@ function extractEncounters(result) {
     rawEntries.push(...result.entries);
   }
 
-  return rawEntries.map((entry) => {
-    if (entry && typeof entry === 'object') {
-      if (entry.properties && typeof entry.properties === 'object') {
-        return entry.properties;
-      }
-      return entry;
-    }
-    return {};
-  });
+  return rawEntries.map((entry) => normalizeEncounter(entry));
 }
 
 export const DEFAULT_ENCOUNTERS_CACHE_TTL_MS = DEFAULT_CACHE_TTL_MS;
+
+function normalizeEncounter(entry) {
+  const properties = extractProperties(entry);
+  const normalized = { ...properties };
+
+  const encounterId = pickFirstValue(properties, ['encounterId', 'encounter_id', 'id', '$primaryKey', 'rid']);
+  if (encounterId && !normalized.encounterId) {
+    normalized.encounterId = encounterId;
+  }
+  if (encounterId && !normalized.id) {
+    normalized.id = encounterId;
+  }
+
+  const startDate = pickFirstValue(properties, ['periodStart', 'startDate', 'start', 'startTimestamp', 'start_date']);
+  if (startDate) {
+    normalized.periodStart = normalized.periodStart ?? startDate;
+    normalized.startDate = startDate;
+  }
+
+  const endDate = pickFirstValue(properties, ['periodEnd', 'endDate', 'end', 'endTimestamp', 'end_date']);
+  if (endDate) {
+    normalized.periodEnd = normalized.periodEnd ?? endDate;
+    normalized.endDate = endDate;
+  }
+
+  const typeDisplay = pickFirstValue(properties, ['typeDisplay', 'encounterType', 'type', 'encounter_type']);
+  if (typeDisplay) {
+    normalized.typeDisplay = normalized.typeDisplay ?? typeDisplay;
+    normalized.encounterType = normalized.encounterType ?? typeDisplay;
+  }
+
+  const classDisplay = pickFirstValue(properties, ['classDisplay', 'encounterClass', 'class', 'encounter_class']);
+  if (classDisplay) {
+    normalized.classDisplay = normalized.classDisplay ?? classDisplay;
+    normalized.encounterClass = normalized.encounterClass ?? classDisplay;
+  }
+
+  const practitionerName = pickFirstValue(properties, ['practitionerName', 'serviceProvider', 'providerName', 'provider']);
+  if (practitionerName) {
+    normalized.practitionerName = normalized.practitionerName ?? practitionerName;
+    normalized.serviceProvider = normalized.serviceProvider ?? practitionerName;
+  }
+
+  const locationName = pickFirstValue(properties, ['locationName', 'location', 'facility']);
+  if (locationName) {
+    normalized.locationName = normalized.locationName ?? locationName;
+    normalized.location = normalized.location ?? locationName;
+  }
+
+  const encounterTypeCode = pickFirstValue(properties, ['encounterTypeCode', 'typeCode', 'code']);
+  if (encounterTypeCode) {
+    normalized.encounterTypeCode = normalized.encounterTypeCode ?? encounterTypeCode;
+  }
+
+  const status = pickFirstValue(properties, ['status', 'encounterStatus']);
+  if (status) {
+    normalized.status = status;
+  }
+
+  const reasonDisplay = pickFirstValue(properties, ['reasonDisplay', 'reason']);
+  if (reasonDisplay) {
+    normalized.reasonDisplay = normalized.reasonDisplay ?? reasonDisplay;
+  }
+
+  const patientId = pickFirstValue(properties, ['patientId', 'patient_id', 'patient']);
+  if (patientId) {
+    normalized.patientId = normalized.patientId ?? patientId;
+  }
+
+  return normalized;
+}
+
+function extractProperties(entry) {
+  if (entry && typeof entry === 'object') {
+    if (entry.properties && typeof entry.properties === 'object') {
+      return entry.properties;
+    }
+    return entry;
+  }
+  return {};
+}
+
+function pickFirstValue(source, keys) {
+  for (const key of keys) {
+    if (!key) {
+      continue;
+    }
+    if (Object.prototype.hasOwnProperty.call(source, key)) {
+      const value = source[key];
+      if (value === undefined || value === null) {
+        continue;
+      }
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (trimmed.length > 0) {
+          return trimmed;
+        }
+      } else if (typeof value === 'number' || typeof value === 'boolean') {
+        return value;
+      }
+    }
+  }
+  return undefined;
+}

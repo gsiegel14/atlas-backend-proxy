@@ -10,17 +10,237 @@ const router = express.Router();
 const CLINICAL_NOTES_CACHE_TTL_MS = 30 * 1000;
 const CONDITIONS_CACHE_TTL_MS = 30 * 1000;
 const OBSERVATIONS_CACHE_TTL_MS = 30 * 1000;
+const PROCEDURES_CACHE_TTL_MS = 30 * 1000;
+const IMMUNIZATIONS_CACHE_TTL_MS = 30 * 1000;
+const ALLERGIES_CACHE_TTL_MS = 30 * 1000;
 const ENCOUNTERS_CACHE_TTL_MS = DEFAULT_ENCOUNTERS_CACHE_TTL_MS;
-const ENCOUNTERS_DEBUG_PATIENT_ID = '7c2f5a19-087b-8b19-1070-800857d62e92';
 const clinicalNotesCache = new Map();
 const conditionsCache = new Map();
 const observationsCache = new Map();
+const proceduresCache = new Map();
+const immunizationsCache = new Map();
+const allergiesCache = new Map();
 const encountersCache = new Map();
 // Use object types as specified in the API documentation
-const clinicalNotesObjectType = process.env.FOUNDRY_CLINICAL_NOTES_OBJECT_TYPE || 'ClinicalNotes';
-const conditionsObjectType = process.env.FOUNDRY_CONDITIONS_OBJECT_TYPE || 'Conditions';
-const observationsObjectType = process.env.FOUNDRY_OBSERVATIONS_OBJECT_TYPE || 'Observations';
-const defaultObservationsPatientId = '7c2f5a19-087b-8b19-1070-800857d62e92';
+const clinicalNotesObjectType = process.env.FOUNDRY_CLINICAL_NOTES_OBJECT_TYPE || 'FastenClinicalNotes';
+const conditionsObjectType = process.env.FOUNDRY_CONDITIONS_OBJECT_TYPE || 'FastenConditions';
+const observationsObjectType = process.env.FOUNDRY_OBSERVATIONS_OBJECT_TYPE || 'FastenObservations';
+const proceduresObjectType = process.env.FOUNDRY_PROCEDURES_OBJECT_TYPE || 'FastenProcedures';
+const immunizationsObjectType = process.env.FOUNDRY_IMMUNIZATIONS_OBJECT_TYPE || 'FastenImmunizations';
+const allergiesObjectType = process.env.FOUNDRY_ALLERGIES_OBJECT_TYPE || 'FastenAllergies';
+
+function normalizeProcedureEntry(entry) {
+  const base = entry && typeof entry === 'object' ? entry : {};
+  const properties = base.properties && typeof base.properties === 'object' ? base.properties : base;
+
+  const rawProcedureId = properties.procedureId
+    || base.procedureId
+    || properties.id
+    || base.id
+    || properties.$primaryKey
+    || base.$primaryKey
+    || properties.rid
+    || base.rid;
+
+  const resolvedPerformedDate = properties.performedDate
+    || base.performedDate
+    || properties.performed_period_start
+    || properties.performedPeriodStart;
+
+  const normalized = {
+    ...properties,
+    procedureId: rawProcedureId || properties.procedureId
+  };
+
+  if (!normalized.id && rawProcedureId) {
+    normalized.id = rawProcedureId;
+  }
+
+  if (resolvedPerformedDate && !normalized.performedDate) {
+    normalized.performedDate = resolvedPerformedDate;
+  }
+
+  if (!normalized.patientId && base.patientId) {
+    normalized.patientId = base.patientId;
+  }
+
+  if (!normalized.procedureName && base.procedureName) {
+    normalized.procedureName = base.procedureName;
+  }
+
+  return normalized;
+}
+
+function normalizeObservationEntry(entry) {
+  const base = entry && typeof entry === 'object' ? entry : {};
+  const properties = base.properties && typeof base.properties === 'object' ? base.properties : base;
+
+  const rawObservationId = properties.observationId
+    || properties.observation_id
+    || base.observationId
+    || base.observation_id
+    || properties.id
+    || base.id
+    || properties.$primaryKey
+    || base.$primaryKey
+    || base.rid
+    || properties.rid;
+
+  const rawEffectiveDatetime = properties.effectiveDatetime
+    || properties.effectiveDateTime
+    || properties.observationDate
+    || base.effectiveDatetime
+    || base.effectiveDateTime
+    || base.observationDate;
+
+  const resolvedCategoryDisplay = properties.categoryDisplay
+    || properties.category
+    || base.categoryDisplay
+    || base.category;
+
+  const resolvedCodeDisplay = properties.codeDisplay
+    || properties.display
+    || base.codeDisplay
+    || base.display;
+
+  const resolvedValueQuantity = properties.valueQuantity
+    ?? properties.valueNumeric
+    ?? base.valueQuantity
+    ?? base.valueNumeric;
+
+  const resolvedValueNumeric = properties.valueNumeric
+    ?? properties.valueQuantity
+    ?? base.valueNumeric
+    ?? base.valueQuantity;
+
+  const normalized = {
+    ...properties,
+    observationId: rawObservationId || properties.observationId
+  };
+
+  if (!normalized.id && rawObservationId) {
+    normalized.id = rawObservationId;
+  }
+
+  if (rawEffectiveDatetime) {
+    normalized.effectiveDatetime = rawEffectiveDatetime;
+    if (!normalized.observationDate) {
+      normalized.observationDate = rawEffectiveDatetime;
+    }
+  }
+
+  if (!normalized.observationDate && base.observationDate) {
+    normalized.observationDate = base.observationDate;
+  }
+
+  if (resolvedCategoryDisplay) {
+    normalized.categoryDisplay = resolvedCategoryDisplay;
+    if (!normalized.category) {
+      normalized.category = resolvedCategoryDisplay;
+    }
+  }
+
+  if (resolvedCodeDisplay) {
+    normalized.codeDisplay = resolvedCodeDisplay;
+    if (!normalized.display) {
+      normalized.display = resolvedCodeDisplay;
+    }
+  }
+
+  if (resolvedValueQuantity !== undefined && resolvedValueQuantity !== null) {
+    normalized.valueQuantity = resolvedValueQuantity;
+  }
+
+  if (resolvedValueNumeric !== undefined && resolvedValueNumeric !== null) {
+    normalized.valueNumeric = resolvedValueNumeric;
+  }
+
+  if (!normalized.valueUnit && base.valueUnit) {
+    normalized.valueUnit = base.valueUnit;
+  }
+
+  if (!normalized.patientId && base.patientId) {
+    normalized.patientId = base.patientId;
+  }
+
+  return normalized;
+}
+
+function normalizeImmunizationEntry(entry) {
+  const base = entry && typeof entry === 'object' ? entry : {};
+  const properties = base.properties && typeof base.properties === 'object' ? base.properties : base;
+
+  const resolvedId = properties.immunizationId
+    || properties.immunization_id
+    || base.immunizationId
+    || base.immunization_id
+    || properties.id
+    || base.id
+    || properties.$primaryKey
+    || base.$primaryKey
+    || base.rid
+    || properties.rid;
+
+  const normalized = { ...properties };
+
+  if (resolvedId && !normalized.immunizationId) {
+    normalized.immunizationId = resolvedId;
+  }
+
+  if (resolvedId && !normalized.id) {
+    normalized.id = resolvedId;
+  }
+
+  const snakeCaseMappings = {
+    vaccine_name: 'vaccineName',
+    occurrence_date: 'occurrenceDate',
+    expiration_date: 'expirationDate',
+    lot_number: 'lotNumber',
+    dose_quantity: 'doseQuantity',
+    dose_unit: 'doseUnit',
+    performer_name: 'performerName',
+    performer_function: 'performerFunction',
+    performer_id: 'performerId',
+    primary_source: 'primarySource',
+    reason_code: 'reasonCode',
+    reason_reference: 'reasonReference',
+    source_file: 'sourceFile',
+    run_id: 'runId'
+  };
+
+  Object.entries(snakeCaseMappings).forEach(([sourceKey, targetKey]) => {
+    if (normalized[targetKey] === undefined && properties[sourceKey] !== undefined) {
+      normalized[targetKey] = properties[sourceKey];
+    }
+  });
+
+  if (!normalized.occurrenceDate && base.occurrenceDate) {
+    normalized.occurrenceDate = base.occurrenceDate;
+  }
+
+  if (!normalized.expirationDate && base.expirationDate) {
+    normalized.expirationDate = base.expirationDate;
+  }
+
+  if (!normalized.patientId && base.patientId) {
+    normalized.patientId = base.patientId;
+  }
+
+  if (!normalized.encounterId && base.encounterId) {
+    normalized.encounterId = base.encounterId;
+  }
+
+  if (typeof normalized.primarySource === 'string') {
+    const value = normalized.primarySource.trim().toLowerCase();
+    if (['true', '1', 'yes'].includes(value)) {
+      normalized.primarySource = true;
+    } else if (['false', '0', 'no'].includes(value)) {
+      normalized.primarySource = false;
+    }
+  }
+
+  return normalized;
+}
 
 // Initialize Foundry service
 const foundryService = new FoundryService({
@@ -38,6 +258,181 @@ const encountersService = new EncountersService({
   cacheTtlMs: ENCOUNTERS_CACHE_TTL_MS,
   cache: encountersCache
 });
+
+function collectIdentityCandidates(req, allowQueryOverride = true) {
+  const candidates = [];
+
+  if (allowQueryOverride) {
+    const queryValue = typeof req.query.patientId === 'string' ? req.query.patientId.trim() : '';
+    if (queryValue) {
+      candidates.push(queryValue);
+    }
+  }
+
+  const auth0Sub = typeof req.user?.sub === 'string' ? req.user.sub.trim() : '';
+  if (auth0Sub) {
+    candidates.push(auth0Sub);
+  }
+
+  const usernameLikeCandidates = [
+    typeof req.context?.username === 'string' ? req.context.username.trim() : '',
+    typeof req.user?.preferred_username === 'string' ? req.user.preferred_username.trim() : '',
+    typeof req.user?.nickname === 'string' ? req.user.nickname.trim() : '',
+    typeof req.user?.email === 'string' ? req.user.email.trim() : ''
+  ];
+
+  for (const candidate of usernameLikeCandidates) {
+    if (candidate) {
+      candidates.push(candidate);
+    }
+  }
+
+  const unique = Array.from(new Set(candidates.filter(Boolean)));
+  return unique;
+}
+
+async function resolvePatientContext(
+  req,
+  { routeName, allowQueryOverride = true } = {}
+) {
+  req.context = req.context || {};
+
+  if (req.context.foundryPatientContext) {
+    return req.context.foundryPatientContext;
+  }
+
+  const identityCandidates = collectIdentityCandidates(req, allowQueryOverride);
+  const queryOverride = allowQueryOverride && typeof req.query.patientId === 'string'
+    ? req.query.patientId.trim()
+    : '';
+  const auth0Sub = typeof req.user?.sub === 'string' ? req.user.sub.trim() : '';
+
+  let resolvedPatientId = '';
+  let matchedIdentifier = '';
+  let source = '';
+  let lookedUpViaFoundry = false;
+
+  for (const identifier of identityCandidates) {
+    try {
+      const profile = await foundryService.getPatientProfile(identifier);
+      if (profile) {
+        const properties = profile.properties && typeof profile.properties === 'object'
+          ? profile.properties
+          : profile;
+        const candidatePatientId = properties.patientId
+          || properties.user_id
+          || properties.userId
+          || properties.atlasId
+          || properties.$primaryKey
+          || properties.$rid
+          || identifier;
+
+        if (candidatePatientId) {
+          resolvedPatientId = String(candidatePatientId).trim();
+          matchedIdentifier = identifier;
+          source = 'foundry-profile';
+          lookedUpViaFoundry = true;
+          break;
+        }
+      }
+    } catch (error) {
+      logger.warn('Foundry patient profile lookup failed', {
+        routeName,
+        identifier,
+        error: error.message,
+        correlationId: req.correlationId
+      });
+    }
+  }
+
+  if (!resolvedPatientId && auth0Sub) {
+    resolvedPatientId = auth0Sub;
+    matchedIdentifier = auth0Sub;
+    source = 'auth0-sub';
+  }
+
+  if (!resolvedPatientId && queryOverride) {
+    resolvedPatientId = queryOverride;
+    matchedIdentifier = queryOverride;
+    source = 'query-param';
+  }
+
+  if (!resolvedPatientId) {
+    const fallbackCandidate = identityCandidates.find(Boolean);
+    if (fallbackCandidate) {
+      resolvedPatientId = fallbackCandidate;
+      matchedIdentifier = fallbackCandidate;
+      source = fallbackCandidate === queryOverride ? 'query-param' : 'username-claim';
+    }
+  }
+
+  const context = {
+    patientId: resolvedPatientId,
+    matchedIdentifier: matchedIdentifier || null,
+    source: source || null,
+    queryOverride: queryOverride && queryOverride !== resolvedPatientId ? queryOverride : undefined,
+    lookedUpViaFoundry,
+    identityCandidates
+  };
+
+  req.context.foundryPatientContext = context;
+
+  if (resolvedPatientId) {
+    logger.debug('Resolved patient context for Foundry route', {
+      routeName,
+      patientId: resolvedPatientId,
+      source: context.source,
+      matchedIdentifier: context.matchedIdentifier,
+      queryOverride: context.queryOverride,
+      correlationId: req.correlationId
+    });
+  }
+
+  return context;
+}
+
+function respondMissingPatientId(req, res, routeName) {
+  return res.status(400).json({
+    error: {
+      code: 'MISSING_PATIENT_ID',
+      message: 'Unable to resolve patient identity for this account',
+      route: routeName,
+      correlationId: req.correlationId,
+      timestamp: new Date().toISOString()
+    }
+  });
+}
+
+function buildPatientFilter(patientId) {
+  const normalized = typeof patientId === 'string' ? patientId.trim() : patientId;
+  const filters = [];
+
+  if (normalized) {
+    filters.push({
+      type: 'eq',
+      field: 'patientId',
+      value: normalized
+    });
+    filters.push({
+      type: 'eq',
+      field: 'auth0id',
+      value: normalized
+    });
+  }
+
+  if (filters.length === 0) {
+    return null;
+  }
+
+  if (filters.length === 1) {
+    return filters[0];
+  }
+
+  return {
+    type: 'or',
+    value: filters
+  };
+}
 
 // Generic action invocation endpoint
 router.post('/actions/:actionId/invoke', validateTokenWithScopes(['execute:actions']), async (req, res, next) => {
@@ -109,17 +504,12 @@ router.post('/actions/:actionId/invoke', validateTokenWithScopes(['execute:actio
 });
 
 router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (req, res, next) => {
+  let patientContext;
   try {
-    const patientId = typeof req.query.patientId === 'string' ? req.query.patientId.trim() : '';
+    patientContext = await resolvePatientContext(req, { routeName: 'clinical-notes' });
+    const patientId = typeof patientContext.patientId === 'string' ? patientContext.patientId.trim() : '';
     if (!patientId) {
-      return res.status(400).json({
-        error: {
-          code: 'MISSING_PATIENT_ID',
-          message: 'patientId query parameter is required',
-          correlationId: req.correlationId,
-          timestamp: new Date().toISOString()
-        }
-      });
+      return respondMissingPatientId(req, res, 'clinical-notes');
     }
 
     const parsedPageSize = Number.parseInt(req.query.pageSize, 10);
@@ -128,9 +518,9 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
       ? req.query.pageToken.trim()
       : undefined;
 
-    const allowedSortFields = new Set(['documentDate', 'encounterId']);
+    const allowedSortFields = new Set(['date', 'encounterId']);
     const sortParam = typeof req.query.sort === 'string' ? req.query.sort.trim() : '';
-    let sortField = 'documentDate';
+    let sortField = 'date';
     let sortDirection = 'DESC';
 
     if (sortParam) {
@@ -181,15 +571,8 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
       throw new Error('Foundry clinical notes ontology RID is not configured');
     }
 
-    // Hardcode patient ID for testing clinical notes (same as working commit 0cb44dd)
-    const testPatientId = "7c2f5a19-087b-8b19-1070-800857d62e92";
-    
     const payload = {
-      where: {
-        type: 'eq',
-        field: 'patientId',
-        value: testPatientId
-      }
+      where: buildPatientFilter(patientId)
     };
 
     // Add optional fields only if they're supported
@@ -198,7 +581,7 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
     }
     
     // Remove orderBy for now - it's causing InvalidFieldType errors
-    // The ClinicalNotes object type might not support ordering
+    // The FastenClinicalNotes object type might not support ordering
     // if (sortField && sortDirection) {
     //   payload.orderBy = [{ field: sortField, direction: sortDirection }];
     // }
@@ -214,6 +597,9 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
       sortDirection,
       pageToken,
       payload: JSON.stringify(payload),
+      ontologyObjectType: observationsObjectType,
+      mappedCategoryCode: mappedCategory?.code || null,
+      mappedCategoryDisplay: mappedCategory?.display || null,
       correlationId: req.correlationId
     });
 
@@ -298,7 +684,193 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
     }
 
     logger.error('Failed to fetch clinical notes', {
-      patientId: req.query.patientId,
+      patientId: patientContext?.patientId,
+      error: error.message,
+      status: error.status,
+      correlationId: req.correlationId
+    });
+
+    next(error);
+  }
+});
+
+router.get('/procedures', validateTokenWithScopes(['read:patient']), async (req, res, next) => {
+  let patientContext;
+  try {
+    patientContext = await resolvePatientContext(req, { routeName: 'procedures' });
+    const patientId = typeof patientContext.patientId === 'string' ? patientContext.patientId.trim() : '';
+
+    if (!patientId) {
+      return respondMissingPatientId(req, res, 'procedures');
+    }
+
+    const parsedPageSize = Number.parseInt(req.query.pageSize, 10);
+    const pageSize = Math.max(Math.min(Number.isFinite(parsedPageSize) ? parsedPageSize : 25, 100), 1);
+    const pageToken = typeof req.query.pageToken === 'string' && req.query.pageToken.trim().length > 0
+      ? req.query.pageToken.trim()
+      : undefined;
+
+    const allowedSortFields = new Set(['performedDate', 'procedureName', 'status']);
+    const sortParam = typeof req.query.sort === 'string' ? req.query.sort.trim() : '';
+    let sortField = 'performedDate';
+    let sortDirection = 'DESC';
+
+    if (sortParam) {
+      let requestedField = sortParam;
+      let requestedDirection = sortDirection;
+
+      if (sortParam.includes(':')) {
+        const [fieldPart, directionPart] = sortParam.split(':');
+        requestedField = fieldPart.trim();
+        const trimmedDirection = directionPart?.trim().toUpperCase();
+        if (trimmedDirection === 'ASC' || trimmedDirection === 'DESC') {
+          requestedDirection = trimmedDirection;
+        }
+      } else if (sortParam.startsWith('-')) {
+        requestedField = sortParam.substring(1).trim();
+        requestedDirection = 'DESC';
+      } else if (sortParam.startsWith('+')) {
+        requestedField = sortParam.substring(1).trim();
+        requestedDirection = 'ASC';
+      } else {
+        requestedField = sortParam;
+        requestedDirection = 'DESC';
+      }
+
+      if (allowedSortFields.has(requestedField)) {
+        sortField = requestedField;
+        sortDirection = requestedDirection;
+      }
+    }
+
+    const cacheKey = JSON.stringify({ patientId, pageSize, pageToken: pageToken ?? null, sortField, sortDirection });
+    const now = Date.now();
+    const cached = proceduresCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      logger.debug('Serving procedures from cache', {
+        patientId,
+        pageSize,
+        sortField,
+        sortDirection,
+        pageToken,
+        correlationId: req.correlationId
+      });
+      return res.json(cached.payload);
+    }
+
+    const ontologyId = foundryService.getApiOntologyRid() || 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+    if (!ontologyId) {
+      throw new Error('Foundry procedures ontology RID is not configured');
+    }
+
+    const payload = {
+      where: buildPatientFilter(patientId),
+      pageSize
+    };
+
+    if (sortField && sortDirection) {
+      payload.orderBy = [{ field: sortField, direction: sortDirection }];
+    }
+
+    if (pageToken) {
+      payload.pageToken = pageToken;
+    }
+
+    logger.info('Fetching procedures from Foundry', {
+      requestedPatientId: patientId,
+      pageSize,
+      sortField,
+      sortDirection,
+      pageToken,
+      payload: JSON.stringify(payload),
+      ontologyObjectType: proceduresObjectType,
+      correlationId: req.correlationId
+    });
+
+    let result;
+    try {
+      result = await foundryService.searchOntologyObjects(ontologyId, proceduresObjectType, payload);
+    } catch (error) {
+      if (error.status === 429) {
+        return res.status(503).json({
+          error: {
+            code: 'FOUNDRY_THROTTLED',
+            message: 'Foundry returned throttling response',
+            correlationId: req.correlationId,
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+
+      if (error.status === 400) {
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_REQUEST',
+            message: error.foundryError?.message || 'Invalid Foundry request parameters',
+            correlationId: req.correlationId,
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+
+      throw error;
+    }
+
+    const rawEntries = [];
+    if (Array.isArray(result?.data)) {
+      rawEntries.push(...result.data);
+    }
+    if (Array.isArray(result?.objects)) {
+      rawEntries.push(...result.objects);
+    }
+    if (Array.isArray(result?.results)) {
+      rawEntries.push(...result.results);
+    }
+    if (Array.isArray(result?.entries)) {
+      rawEntries.push(...result.entries);
+    }
+
+    const procedures = rawEntries.map((entry) => normalizeProcedureEntry(entry));
+
+    const responsePayload = {
+      success: true,
+      data: procedures,
+      nextPageToken: result?.nextPageToken || result?.next_page_token || result?.pageToken || null,
+      fetchedAt: new Date().toISOString(),
+      correlationId: req.correlationId
+    };
+
+    proceduresCache.set(cacheKey, {
+      expiresAt: now + PROCEDURES_CACHE_TTL_MS,
+      payload: responsePayload
+    });
+
+    res.json(responsePayload);
+  } catch (error) {
+    if (error.message === 'Foundry service temporarily unavailable') {
+      return res.status(503).json({
+        error: {
+          code: 'FOUNDRY_UNAVAILABLE',
+          message: 'Foundry service temporarily unavailable',
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    if (error.message === 'Foundry procedures ontology RID is not configured') {
+      return res.status(500).json({
+        error: {
+          code: 'CONFIGURATION_ERROR',
+          message: error.message,
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    logger.error('Failed to fetch procedures', {
+      patientId: patientContext?.patientId,
       error: error.message,
       status: error.status,
       correlationId: req.correlationId
@@ -309,32 +881,18 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
 });
 
 router.get('/encounters', validateTokenWithScopes(['read:patient']), async (req, res, next) => {
-  const rawPatientId = typeof req.query.patientId === 'string' ? req.query.patientId.trim() : '';
-  const patientId = rawPatientId || ENCOUNTERS_DEBUG_PATIENT_ID;
-
-  if (!patientId) {
-    return res.status(400).json({
-      error: {
-        code: 'MISSING_PATIENT_ID',
-        message: 'patientId query parameter is required',
-        correlationId: req.correlationId,
-        timestamp: new Date().toISOString()
-      }
-    });
-  }
-
-  const pageToken = typeof req.query.pageToken === 'string' && req.query.pageToken.trim().length > 0
-    ? req.query.pageToken.trim()
-    : undefined;
-  const sortParam = typeof req.query.sort === 'string' ? req.query.sort.trim() : undefined;
-
+  let patientContext;
   try {
-    if (!rawPatientId && patientId === ENCOUNTERS_DEBUG_PATIENT_ID) {
-      logger.debug('Encounters route using fallback patient context', {
-        fallbackPatientId: patientId,
-        correlationId: req.correlationId
-      });
+    patientContext = await resolvePatientContext(req, { routeName: 'encounters' });
+    const patientId = typeof patientContext.patientId === 'string' ? patientContext.patientId.trim() : '';
+    if (!patientId) {
+      return respondMissingPatientId(req, res, 'encounters');
     }
+
+    const pageToken = typeof req.query.pageToken === 'string' && req.query.pageToken.trim().length > 0
+      ? req.query.pageToken.trim()
+      : undefined;
+    const sortParam = typeof req.query.sort === 'string' ? req.query.sort.trim() : undefined;
 
     const payload = await encountersService.fetchEncounters({
       patientId,
@@ -391,7 +949,202 @@ router.get('/encounters', validateTokenWithScopes(['read:patient']), async (req,
     }
 
     logger.error('Failed to fetch encounters', {
+      patientId: patientContext?.patientId,
+      error: error.message,
+      status: error.status,
+      correlationId: req.correlationId
+    });
+
+    next(error);
+  }
+});
+
+router.get('/immunizations', validateTokenWithScopes(['read:patient']), async (req, res, next) => {
+  let patientContext;
+  try {
+    patientContext = await resolvePatientContext(req, { routeName: 'immunizations' });
+    const patientId = typeof patientContext.patientId === 'string' ? patientContext.patientId.trim() : '';
+
+    if (!patientId) {
+      return respondMissingPatientId(req, res, 'immunizations');
+    }
+
+    const parsedPageSize = Number.parseInt(req.query.pageSize, 10);
+    const pageSize = Math.max(Math.min(Number.isFinite(parsedPageSize) ? parsedPageSize : 25, 100), 1);
+    const pageToken = typeof req.query.pageToken === 'string' && req.query.pageToken.trim().length > 0
+      ? req.query.pageToken.trim()
+      : undefined;
+
+    const allowedSortFields = new Set(['occurrenceDate', 'vaccineName', 'status']);
+    const sortParam = typeof req.query.sort === 'string' ? req.query.sort.trim() : '';
+    let sortField = 'occurrenceDate';
+    let sortDirection = 'DESC';
+
+    if (sortParam) {
+      let requestedField = sortParam;
+      let requestedDirection = sortDirection;
+
+      if (sortParam.includes(':')) {
+        const [fieldPart, directionPart] = sortParam.split(':');
+        requestedField = fieldPart.trim();
+        const trimmedDirection = directionPart?.trim().toUpperCase();
+        if (trimmedDirection === 'ASC' || trimmedDirection === 'DESC') {
+          requestedDirection = trimmedDirection;
+        }
+      } else if (sortParam.startsWith('-')) {
+        requestedField = sortParam.substring(1).trim();
+        requestedDirection = 'DESC';
+      } else if (sortParam.startsWith('+')) {
+        requestedField = sortParam.substring(1).trim();
+        requestedDirection = 'ASC';
+      } else {
+        requestedField = sortParam;
+        requestedDirection = 'DESC';
+      }
+
+      if (allowedSortFields.has(requestedField)) {
+        sortField = requestedField;
+        sortDirection = requestedDirection;
+      }
+    }
+
+    const cacheKey = JSON.stringify({
       patientId,
+      pageSize,
+      pageToken: pageToken ?? null,
+      sortField,
+      sortDirection
+    });
+    const now = Date.now();
+    const cached = immunizationsCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      logger.debug('Serving immunizations from cache', {
+        patientId,
+        pageSize,
+        sortField,
+        sortDirection,
+        pageToken,
+        correlationId: req.correlationId
+      });
+      return res.json(cached.payload);
+    }
+
+    const ontologyId = foundryService.getApiOntologyRid() || 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+    if (!ontologyId) {
+      throw new Error('Foundry immunizations ontology RID is not configured');
+    }
+
+    const queryPatientId = patientId;
+
+    const filters = [];
+    const patientFilter = buildPatientFilter(patientId);
+    if (patientFilter) {
+      if (patientFilter.type === 'or') {
+        filters.push(...patientFilter.value);
+      } else {
+        filters.push(patientFilter);
+      }
+    }
+
+    const payload = {
+      where: filters.length === 1 ? filters[0] : { type: 'and', value: filters }
+    };
+
+    if (pageSize && pageSize > 0) {
+      payload.pageSize = pageSize;
+    }
+
+    // Sorting has historically produced InvalidFieldType errors on similar ontologies.
+    // Keep parity with other record fetches by omitting orderBy until confirmed otherwise.
+
+    if (pageToken) {
+      payload.pageToken = pageToken;
+    }
+
+    logger.info('Fetching immunizations from Foundry', {
+      patientId,
+      queryPatientId,
+      pageSize,
+      sortField,
+      sortDirection,
+      pageToken,
+      payload: JSON.stringify(payload),
+      correlationId: req.correlationId
+    });
+
+    let result;
+    try {
+      result = await foundryService.searchOntologyObjects(ontologyId, immunizationsObjectType, payload);
+    } catch (error) {
+      if (error.status === 429) {
+        return res.status(503).json({
+          error: {
+            code: 'FOUNDRY_THROTTLED',
+            message: 'Foundry returned throttling response',
+            correlationId: req.correlationId,
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+
+      if (error.status === 400) {
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_REQUEST',
+            message: error.foundryError?.message || 'Invalid Foundry request parameters',
+            correlationId: req.correlationId,
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+
+      throw error;
+    }
+
+    const rawEntries = [];
+    if (Array.isArray(result?.data)) {
+      rawEntries.push(...result.data);
+    }
+    if (Array.isArray(result?.objects)) {
+      rawEntries.push(...result.objects);
+    }
+    if (Array.isArray(result?.results)) {
+      rawEntries.push(...result.results);
+    }
+    if (Array.isArray(result?.entries)) {
+      rawEntries.push(...result.entries);
+    }
+
+    const immunizations = rawEntries.map((entry) => normalizeImmunizationEntry(entry));
+
+    const responsePayload = {
+      success: true,
+      data: immunizations,
+      nextPageToken: result?.nextPageToken || result?.next_page_token || result?.pageToken || null,
+      fetchedAt: new Date().toISOString(),
+      correlationId: req.correlationId
+    };
+
+    immunizationsCache.set(cacheKey, {
+      expiresAt: now + IMMUNIZATIONS_CACHE_TTL_MS,
+      payload: responsePayload
+    });
+
+    res.json(responsePayload);
+  } catch (error) {
+    if (error.message === 'Foundry service temporarily unavailable') {
+      return res.status(503).json({
+        error: {
+          code: 'FOUNDRY_UNAVAILABLE',
+          message: 'Foundry service temporarily unavailable',
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    logger.error('Failed to fetch immunizations', {
+      patientId: patientContext?.patientId,
       error: error.message,
       status: error.status,
       correlationId: req.correlationId
@@ -402,19 +1155,13 @@ router.get('/encounters', validateTokenWithScopes(['read:patient']), async (req,
 });
 
 router.get('/observations', validateTokenWithScopes(['read:patient']), async (req, res, next) => {
+  let patientContext;
   try {
-    const incomingPatientId = typeof req.query.patientId === 'string' ? req.query.patientId.trim() : '';
-    const patientId = incomingPatientId || defaultObservationsPatientId;
+    patientContext = await resolvePatientContext(req, { routeName: 'observations' });
+    const patientId = typeof patientContext.patientId === 'string' ? patientContext.patientId.trim() : '';
 
     if (!patientId) {
-      return res.status(400).json({
-        error: {
-          code: 'MISSING_PATIENT_ID',
-          message: 'patientId query parameter is required',
-          correlationId: req.correlationId,
-          timestamp: new Date().toISOString()
-        }
-      });
+      return respondMissingPatientId(req, res, 'observations');
     }
 
     const categoryParam = typeof req.query.category === 'string' ? req.query.category.trim() : '';
@@ -486,33 +1233,74 @@ router.get('/observations', validateTokenWithScopes(['read:patient']), async (re
       throw new Error('Foundry observations ontology RID is not configured');
     }
 
-    // Use the same test patient ID that has data (same as clinical notes)
-    const testPatientId = defaultObservationsPatientId;
-
-    // Map iOS category names to Foundry category values
+    // Map iOS category values to the new Fasten Observations ontology fields
     const categoryMapping = {
-      'vital-signs': 'Vital signs',  // iOS sends 'vital-signs', Foundry has 'Vital signs'
-      'laboratory': 'Laboratory',    // iOS sends 'laboratory', Foundry has 'Laboratory'
-      'survey': 'Survey',            // iOS sends 'survey', Foundry has 'Survey'
-      'exam': 'Exam'                 // iOS sends 'exam', Foundry has 'Exam'
+      'vital-signs': {
+        code: 'vital-signs',
+        display: 'Vital Signs'
+      },
+      'laboratory': {
+        code: 'laboratory',
+        display: 'Laboratory'
+      },
+      'survey': {
+        code: 'survey',
+        display: 'Survey'
+      },
+      'exam': {
+        code: 'exam',
+        display: 'Exam'
+      }
     };
 
-    const mappedCategory = categoryParam ? categoryMapping[categoryParam] || categoryParam : null;
+    const mappedCategory = categoryParam ? categoryMapping[categoryParam] || { code: categoryParam } : null;
 
-    const filters = [
-      {
-        type: 'eq',
-        field: 'patientId',
-        value: testPatientId
+    const filters = [];
+    const patientFilter = buildPatientFilter(patientId);
+    if (patientFilter) {
+      if (patientFilter.type === 'or') {
+        filters.push(...patientFilter.value);
+      } else {
+        filters.push(patientFilter);
       }
-    ];
+    }
 
     if (mappedCategory) {
-      filters.push({
-        type: 'eq',
-        field: 'category',
-        value: mappedCategory
-      });
+      const categoryFilters = [];
+
+      if (mappedCategory.code) {
+        categoryFilters.push({
+          type: 'eq',
+          field: 'categoryCode',
+          value: mappedCategory.code
+        });
+      }
+
+      if (mappedCategory.display) {
+        categoryFilters.push({
+          type: 'eq',
+          field: 'categoryDisplay',
+          value: mappedCategory.display
+        });
+      }
+
+      // Maintain compatibility with legacy field names if the ontology still exposes them.
+      if (categoryParam) {
+        categoryFilters.push({
+          type: 'eq',
+          field: 'category',
+          value: mappedCategory.display || categoryParam
+        });
+      }
+
+      if (categoryFilters.length === 1) {
+        filters.push(categoryFilters[0]);
+      } else if (categoryFilters.length > 1) {
+        filters.push({
+          type: 'or',
+          value: categoryFilters
+        });
+      }
     }
 
     const payload = {
@@ -535,11 +1323,14 @@ router.get('/observations', validateTokenWithScopes(['read:patient']), async (re
       patientId,
       category: categoryParam || null,
       mappedCategory: mappedCategory || null,
+      mappedCategoryCode: mappedCategory?.code || null,
+      mappedCategoryDisplay: mappedCategory?.display || null,
       pageSize,
       sortField,
       sortDirection,
       pageToken,
       payload: JSON.stringify(payload),
+      ontologyObjectType: observationsObjectType,
       correlationId: req.correlationId
     });
 
@@ -586,15 +1377,7 @@ router.get('/observations', validateTokenWithScopes(['read:patient']), async (re
       rawEntries.push(...result.entries);
     }
 
-    const observations = rawEntries.map((entry) => {
-      if (entry && typeof entry === 'object') {
-        if (entry.properties && typeof entry.properties === 'object') {
-          return entry.properties;
-        }
-        return entry;
-      }
-      return {};
-    });
+    const observations = rawEntries.map((entry) => normalizeObservationEntry(entry));
 
     const responsePayload = {
       success: true,
@@ -623,7 +1406,206 @@ router.get('/observations', validateTokenWithScopes(['read:patient']), async (re
     }
 
     logger.error('Failed to fetch observations', {
-      patientId: req.query.patientId,
+      patientId: patientContext?.patientId,
+      error: error.message,
+      status: error.status,
+      correlationId: req.correlationId
+    });
+
+    next(error);
+  }
+});
+
+router.get('/allergies', validateTokenWithScopes(['read:patient']), async (req, res, next) => {
+  let patientContext;
+  try {
+    patientContext = await resolvePatientContext(req, { routeName: 'allergies' });
+    const patientId = typeof patientContext.patientId === 'string' ? patientContext.patientId.trim() : '';
+
+    if (!patientId) {
+      return respondMissingPatientId(req, res, 'allergies');
+    }
+
+    const parsedPageSize = Number.parseInt(req.query.pageSize, 10);
+    const pageSize = Math.max(Math.min(Number.isFinite(parsedPageSize) ? parsedPageSize : 25, 100), 1);
+    const pageToken = typeof req.query.pageToken === 'string' && req.query.pageToken.trim().length > 0
+      ? req.query.pageToken.trim()
+      : undefined;
+
+    const allowedSortFields = new Set(['recordedDate', 'allergyDisplay', 'clinicalStatus', 'verificationStatus']);
+    const sortParam = typeof req.query.sort === 'string' ? req.query.sort.trim() : '';
+    let sortField = 'recordedDate';
+    let sortDirection = 'DESC';
+
+    if (sortParam) {
+      let requestedField = sortParam;
+      let requestedDirection = sortDirection;
+
+      if (sortParam.includes(':')) {
+        const [fieldPart, directionPart] = sortParam.split(':');
+        requestedField = fieldPart.trim();
+        const trimmedDirection = directionPart?.trim().toUpperCase();
+        if (trimmedDirection === 'ASC' || trimmedDirection === 'DESC') {
+          requestedDirection = trimmedDirection;
+        }
+      } else if (sortParam.startsWith('-')) {
+        requestedField = sortParam.substring(1).trim();
+        requestedDirection = 'DESC';
+      } else if (sortParam.startsWith('+')) {
+        requestedField = sortParam.substring(1).trim();
+        requestedDirection = 'ASC';
+      } else {
+        requestedField = sortParam;
+        requestedDirection = 'DESC';
+      }
+
+      if (allowedSortFields.has(requestedField)) {
+        sortField = requestedField;
+        sortDirection = requestedDirection;
+      }
+    }
+
+    const cacheKey = JSON.stringify({
+      patientId,
+      pageSize,
+      pageToken: pageToken ?? null,
+      sortField,
+      sortDirection
+    });
+    const now = Date.now();
+    const cached = allergiesCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      logger.debug('Serving allergies from cache', {
+        patientId,
+        pageSize,
+        sortField,
+        sortDirection,
+        pageToken,
+        correlationId: req.correlationId
+      });
+      return res.json(cached.payload);
+    }
+
+    const ontologyId = foundryService.getApiOntologyRid() || 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+    if (!ontologyId) {
+      throw new Error('Foundry allergies ontology RID is not configured');
+    }
+
+    const filters = [];
+    const patientFilter = buildPatientFilter(patientId);
+    if (patientFilter) {
+      if (patientFilter.type === 'or') {
+        filters.push(...patientFilter.value);
+      } else {
+        filters.push(patientFilter);
+      }
+    }
+
+    const payload = {
+      where: filters.length === 1 ? filters[0] : { type: 'and', value: filters }
+    };
+
+    if (pageSize && pageSize > 0) {
+      payload.pageSize = pageSize;
+    }
+
+    // Keep parity with other Foundry queries by omitting orderBy until schema validation is complete.
+
+    if (pageToken) {
+      payload.pageToken = pageToken;
+    }
+
+    logger.info('Fetching allergies from Foundry', {
+      patientId,
+      pageSize,
+      sortField,
+      sortDirection,
+      pageToken,
+      payload: JSON.stringify(payload),
+      correlationId: req.correlationId
+    });
+
+    let result;
+    try {
+      result = await foundryService.searchOntologyObjects(ontologyId, allergiesObjectType, payload);
+    } catch (error) {
+      if (error.status === 429) {
+        return res.status(503).json({
+          error: {
+            code: 'FOUNDRY_THROTTLED',
+            message: 'Foundry returned throttling response',
+            correlationId: req.correlationId,
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+
+      if (error.status === 400) {
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_REQUEST',
+            message: error.foundryError?.message || 'Invalid Foundry request parameters',
+            correlationId: req.correlationId,
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+
+      throw error;
+    }
+
+    const rawEntries = [];
+    if (Array.isArray(result?.data)) {
+      rawEntries.push(...result.data);
+    }
+    if (Array.isArray(result?.objects)) {
+      rawEntries.push(...result.objects);
+    }
+    if (Array.isArray(result?.results)) {
+      rawEntries.push(...result.results);
+    }
+    if (Array.isArray(result?.entries)) {
+      rawEntries.push(...result.entries);
+    }
+
+    const allergies = rawEntries.map((entry) => {
+      if (entry && typeof entry === 'object') {
+        if (entry.properties && typeof entry.properties === 'object') {
+          return entry.properties;
+        }
+        return entry;
+      }
+      return {};
+    });
+
+    const responsePayload = {
+      success: true,
+      data: allergies,
+      nextPageToken: result?.nextPageToken || result?.next_page_token || result?.pageToken || null,
+      fetchedAt: new Date().toISOString(),
+      correlationId: req.correlationId
+    };
+
+    allergiesCache.set(cacheKey, {
+      expiresAt: now + ALLERGIES_CACHE_TTL_MS,
+      payload: responsePayload
+    });
+
+    res.json(responsePayload);
+  } catch (error) {
+    if (error.message === 'Foundry service temporarily unavailable') {
+      return res.status(503).json({
+        error: {
+          code: 'FOUNDRY_UNAVAILABLE',
+          message: 'Foundry service temporarily unavailable',
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    logger.error('Failed to fetch allergies', {
+      patientId: patientContext?.patientId,
       error: error.message,
       status: error.status,
       correlationId: req.correlationId
@@ -634,17 +1616,12 @@ router.get('/observations', validateTokenWithScopes(['read:patient']), async (re
 });
 
 router.get('/conditions', validateTokenWithScopes(['read:patient']), async (req, res, next) => {
+  let patientContext;
   try {
-    const patientId = typeof req.query.patientId === 'string' ? req.query.patientId.trim() : '';
+    patientContext = await resolvePatientContext(req, { routeName: 'conditions' });
+    const patientId = typeof patientContext.patientId === 'string' ? patientContext.patientId.trim() : '';
     if (!patientId) {
-      return res.status(400).json({
-        error: {
-          code: 'MISSING_PATIENT_ID',
-          message: 'patientId query parameter is required',
-          correlationId: req.correlationId,
-          timestamp: new Date().toISOString()
-        }
-      });
+      return respondMissingPatientId(req, res, 'conditions');
     }
 
     const parsedPageSize = Number.parseInt(req.query.pageSize, 10);
@@ -653,7 +1630,7 @@ router.get('/conditions', validateTokenWithScopes(['read:patient']), async (req,
       ? req.query.pageToken.trim()
       : undefined;
 
-    const allowedSortFields = new Set(['recordedDate', 'onsetDatetime', 'conditionDisplay']);
+    const allowedSortFields = new Set(['recordedDate', 'onsetDate', 'onsetDatetime', 'conditionName']);
     const sortParam = typeof req.query.sort === 'string' ? req.query.sort.trim() : '';
     let sortField = 'recordedDate';
     let sortDirection = 'DESC';
@@ -703,15 +1680,8 @@ router.get('/conditions', validateTokenWithScopes(['read:patient']), async (req,
       throw new Error('Foundry conditions ontology RID is not configured');
     }
 
-    // Use the same test patient ID that has data (same as clinical notes and observations)
-    const testPatientId = "7c2f5a19-087b-8b19-1070-800857d62e92";
-
     const payload = {
-      where: {
-        type: 'eq',
-        field: 'patientId',
-        value: testPatientId
-      }
+      where: buildPatientFilter(patientId)
     };
 
     if (pageSize && pageSize > 0) {
@@ -812,7 +1782,7 @@ router.get('/conditions', validateTokenWithScopes(['read:patient']), async (req,
     }
 
     logger.error('Failed to fetch conditions', {
-      patientId: req.query.patientId,
+      patientId: patientContext?.patientId,
       error: error.message,
       status: error.status,
       correlationId: req.correlationId
