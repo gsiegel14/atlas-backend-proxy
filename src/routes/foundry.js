@@ -597,9 +597,7 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
       sortDirection,
       pageToken,
       payload: JSON.stringify(payload),
-      ontologyObjectType: observationsObjectType,
-      mappedCategoryCode: mappedCategory?.code || null,
-      mappedCategoryDisplay: mappedCategory?.display || null,
+      ontologyObjectType: clinicalNotesObjectType,
       correlationId: req.correlationId
     });
 
@@ -768,9 +766,7 @@ router.get('/procedures', validateTokenWithScopes(['read:patient']), async (req,
       pageSize
     };
 
-    if (sortField && sortDirection) {
-      payload.orderBy = [{ field: sortField, direction: sortDirection }];
-    }
+    // Omit orderBy due to InvalidFieldType errors reported by Foundry for this ontology
 
     if (pageToken) {
       payload.pageToken = pageToken;
@@ -1284,14 +1280,7 @@ router.get('/observations', validateTokenWithScopes(['read:patient']), async (re
         });
       }
 
-      // Maintain compatibility with legacy field names if the ontology still exposes them.
-      if (categoryParam) {
-        categoryFilters.push({
-          type: 'eq',
-          field: 'category',
-          value: mappedCategory.display || categoryParam
-        });
-      }
+      // Do not include legacy 'category' field filter; not present on FastenObservations
 
       if (categoryFilters.length === 1) {
         filters.push(categoryFilters[0]);
