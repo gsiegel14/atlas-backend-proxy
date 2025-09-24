@@ -518,7 +518,7 @@ export class FoundryService {
     });
   }
 
-  // Execute ontology query (like patientChat)
+  // Execute ontology query (like patientChat) with extended timeout
   async executeOntologyQuery(queryName, parameters = {}) {
     const ontologyRid = this.getApiOntologyRid();
     if (!ontologyRid) {
@@ -526,9 +526,40 @@ export class FoundryService {
     }
     
     const endpoint = `/api/v2/ontologies/${ontologyRid}/queries/${queryName}/execute`;
-    return this.apiCall('POST', endpoint, {
-      parameters
-    });
+    
+    // Use direct API call with extended timeout for ontology queries
+    const token = await this.getToken();
+    const url = `${this.host}${endpoint}`;
+    
+    const config = {
+      method: 'POST',
+      url,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      data: { parameters },
+      timeout: 30000 // 30 seconds for ontology queries
+    };
+    
+    logger.debug(`Making extended timeout Foundry ontology query: ${queryName}`);
+    
+    try {
+      const response = await axios(config);
+      return response.data;
+    } catch (error) {
+      logger.error(`Foundry ontology query failed: ${queryName}`, {
+        error: error.message,
+        status: error.response?.status,
+        data: error.response?.data
+      });
+      
+      // Re-throw with enhanced error information
+      const enhancedError = new Error(`Foundry Ontology Query Error: ${error.message}`);
+      enhancedError.status = error.response?.status || 500;
+      enhancedError.foundryError = error.response?.data;
+      throw enhancedError;
+    }
   }
 
   async searchOntologyObjects(ontologyId, objectTypePath, payload = {}) {
