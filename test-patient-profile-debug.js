@@ -5,7 +5,7 @@
  * This helps debug the 404 issue with user auth0|68d39b8321ee4ff6e25f9b03
  */
 
-const axios = require('axios');
+import axios from 'axios';
 
 // Configuration
 const BASE_URL = 'https://atlas-backend-proxy.onrender.com';
@@ -83,6 +83,9 @@ async function checkFoundryDirectly() {
     };
     
     console.log('📤 Searching Foundry for user:', TEST_USER_ID);
+    console.log('📤 Exact search payload:', JSON.stringify(searchPayload, null, 2));
+    console.log('📤 Using ontology:', ontologyRid);
+    console.log('📤 Full URL:', `https://atlasengine.palantirfoundry.com/api/v2/ontologies/${ontologyRid}/objects/A/search`);
     
     const response = await axios.post(
       `https://atlasengine.palantirfoundry.com/api/v2/ontologies/${ontologyRid}/objects/A/search`,
@@ -117,6 +120,5 @@ async function main() {
   await checkFoundryDirectly();
 }
 
-if (require.main === module) {
-  main();
-}
+// Run the main function
+main();
