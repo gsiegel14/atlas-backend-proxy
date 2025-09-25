@@ -111,7 +111,7 @@ router.post('/export', async (req, res, next) => {
       rawhealthkit,
       timestamp: exportTimestamp,
       device: exportDevice,
-      options: { returnEdits: "ALL" }, // Match Foundry documentation exactly
+      options: { $returnEdits: true }, // Match TypeScript SDK format
       ontologyId: ONTOLOGY_ID
     });
 

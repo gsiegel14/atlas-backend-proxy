@@ -273,7 +273,7 @@ export class FoundryService {
       normalized.returnEdits = options.returnEdits;
     }
     if (options.$returnEdits !== undefined) {
-      normalized.returnEdits = options.$returnEdits === true ? 'ALL' : options.$returnEdits;
+      normalized.returnEdits = options.$returnEdits === true ? 'ALL' : 'NONE';
     }
 
     return normalized;
