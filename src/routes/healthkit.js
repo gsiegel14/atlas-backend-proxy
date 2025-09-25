@@ -14,7 +14,7 @@ const foundryService = new FoundryService({
   healthkitRawActionId: process.env.FOUNDRY_HEALTHKIT_ACTION_ID
 });
 
-router.post('/export', validateTokenWithScopes(['execute:actions']), async (req, res, next) => {
+router.post('/export', async (req, res, next) => {
   try {
     const auth0id = req.user?.sub;
     if (!auth0id) {
