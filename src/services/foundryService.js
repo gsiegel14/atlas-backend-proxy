@@ -9,6 +9,9 @@ export class FoundryService {
     this.clientSecret = config.clientSecret;
     this.tokenUrl = config.tokenUrl;
     this.ontologyRid = config.ontologyRid || process.env.FOUNDRY_ONTOLOGY_RID;
+    this.medicationsOntologyRid = config.medicationsOntologyRid
+      || process.env.FOUNDRY_MEDICATIONS_ONTOLOGY_RID
+      || this.ontologyRid;
     this.medicationsActionId = config.medicationsActionId
       || process.env.FOUNDRY_MEDICATIONS_ACTION_ID
       || 'create-medications-upload';
@@ -21,6 +24,9 @@ export class FoundryService {
     this.intraencounterActionId = config.intraencounterActionId
       || process.env.FOUNDRY_INTRAENCOUNTER_ACTION_ID
       || 'create-atlas-intraencounter-production';
+    this.healthkitRawActionId = config.healthkitRawActionId
+      || process.env.FOUNDRY_HEALTHKIT_ACTION_ID
+      || 'create-healthkit-raw';
     
     this.tokenCache = new Map();
     
@@ -357,13 +363,13 @@ export class FoundryService {
     return normalized;
   }
 
-  async applyOntologyAction(actionId, parameters = {}, options = {}) {
+  async applyOntologyAction(actionId, parameters = {}, options = {}, ontologyId = this.ontologyRid) {
     const payload = {
       parameters,
       options: this.normalizeActionOptions(options)
     };
 
-    const endpoints = this.buildActionEndpointCandidates(actionId, 'apply');
+    const endpoints = this.buildActionEndpointCandidates(actionId, 'apply', ontologyId);
     let lastError;
     for (const endpoint of endpoints) {
       try {
@@ -416,7 +422,7 @@ export class FoundryService {
       timestamp: actionParams.timestamp
     });
 
-    return this.applyOntologyAction(this.medicationsActionId, actionParams, options);
+    return this.applyOntologyAction(this.medicationsActionId, actionParams, options, this.medicationsOntologyRid);
   }
 
   async createIntraencounterProduction({
@@ -496,8 +502,37 @@ export class FoundryService {
     return this.applyOntologyAction(this.chatHistoryActionId, actionParams, options);
   }
 
+  async createHealthkitRaw({
+    auth0id,
+    rawhealthkit,
+    timestamp,
+    device,
+    options = {}
+  }) {
+    if (!auth0id) {
+      throw new Error('auth0id is required for HealthKit raw export');
+    }
+    if (!rawhealthkit || typeof rawhealthkit !== 'string' || rawhealthkit.length === 0) {
+      throw new Error('rawhealthkit payload is required for HealthKit raw export');
+    }
+
+    const actionParams = {
+      auth0id,
+      rawhealthkit,
+      timestamp: timestamp || new Date().toISOString(),
+      device: device || 'unknown'
+    };
+
+    logger.info('Submitting HealthKit raw export to Foundry', {
+      auth0id,
+      device: actionParams.device
+    });
+
+    return this.applyOntologyAction(this.healthkitRawActionId, actionParams, options);
+  }
+
   async listMedicationsUploads(userIdentifiers = [], { limit = 50 } = {}) {
-    if (!this.ontologyRid) {
+    if (!this.medicationsOntologyRid) {
       throw new Error('Foundry ontology RID is not configured');
     }
 
@@ -522,7 +557,7 @@ export class FoundryService {
 
       try {
         const searchResult = await this.searchOntologyObjects(
-          this.ontologyRid,
+          this.medicationsOntologyRid,
           this.medicationsUploadObjectType,
           payload
         );
@@ -534,7 +569,7 @@ export class FoundryService {
             responses.push({
               ...item,
               source: {
-                ontologyId: this.ontologyRid,
+                ontologyId: this.medicationsOntologyRid,
                 objectType: this.medicationsUploadObjectType
               }
             });
@@ -571,8 +606,8 @@ export class FoundryService {
     });
   }
 
-  // Execute ontology query (like patientChat) with extended timeout
-  async executeOntologyQuery(queryName, parameters = {}) {
+  // Execute ontology query (like patientChat) with extended timeout and retry logic
+  async executeOntologyQuery(queryName, parameters = {}, maxRetries = 2) {
     const ontologyRid = this.getApiOntologyRid();
     if (!ontologyRid) {
       throw new Error('Ontology RID is not configured');
@@ -592,27 +627,59 @@ export class FoundryService {
         'Content-Type': 'application/json'
       },
       data: { parameters },
-      timeout: 30000 // 30 seconds for ontology queries
+      timeout: 120000 // 120 seconds for ontology queries (increased for complex patient chat)
     };
     
     logger.debug(`Making extended timeout Foundry ontology query: ${queryName}`);
     
-    try {
-      const response = await axios(config);
-      return response.data;
-    } catch (error) {
-      logger.error(`Foundry ontology query failed: ${queryName}`, {
-        error: error.message,
-        status: error.response?.status,
-        data: error.response?.data
-      });
-      
-      // Re-throw with enhanced error information
-      const enhancedError = new Error(`Foundry Ontology Query Error: ${error.message}`);
-      enhancedError.status = error.response?.status || 500;
-      enhancedError.foundryError = error.response?.data;
-      throw enhancedError;
+    let lastError;
+    for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+      try {
+        if (attempt > 1) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 2), 10000); // Exponential backoff, max 10s
+          logger.info(`Retrying Foundry ontology query: ${queryName} (attempt ${attempt}/${maxRetries + 1}) after ${delay}ms`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+        
+        const response = await axios(config);
+        
+        if (attempt > 1) {
+          logger.info(`Foundry ontology query succeeded on retry: ${queryName} (attempt ${attempt})`);
+        }
+        
+        return response.data;
+      } catch (error) {
+        lastError = error;
+        
+        // Don't retry on authentication or client errors (4xx)
+        if (error.response?.status >= 400 && error.response?.status < 500) {
+          break;
+        }
+        
+        // Don't retry on the last attempt
+        if (attempt === maxRetries + 1) {
+          break;
+        }
+        
+        logger.warn(`Foundry ontology query failed (attempt ${attempt}/${maxRetries + 1}): ${queryName}`, {
+          error: error.message,
+          status: error.response?.status,
+          willRetry: attempt <= maxRetries
+        });
+      }
     }
+    
+    logger.error(`Foundry ontology query failed after ${maxRetries + 1} attempts: ${queryName}`, {
+      error: lastError.message,
+      status: lastError.response?.status,
+      data: lastError.response?.data
+    });
+    
+    // Re-throw with enhanced error information
+    const enhancedError = new Error(`Foundry Ontology Query Error: ${lastError.message}`);
+    enhancedError.status = lastError.response?.status || 500;
+    enhancedError.foundryError = lastError.response?.data;
+    throw enhancedError;
   }
 
   async searchOntologyObjects(ontologyId, objectTypePath, payload = {}) {
