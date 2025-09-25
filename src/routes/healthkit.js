@@ -48,8 +48,8 @@ router.post('/export/batch', async (req, res, next) => {
     // Validate each chunk
     const requests = [];
     let totalRecords = 0;
-    const MAX_CHUNK_SIZE = 3 * 1024 * 1024; // 3MB per chunk
-    const MAX_CHUNKS = 5; // Maximum 5 chunks per batch
+    const MAX_CHUNK_SIZE = 2 * 1024 * 1024; // 2MB per chunk (raw data before base64)
+    const MAX_CHUNKS = 7; // Maximum 7 chunks per batch (~14MB raw, ~19MB base64)
     
     if (chunks.length > MAX_CHUNKS) {
       return res.status(400).json({
