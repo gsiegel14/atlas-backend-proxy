@@ -507,7 +507,8 @@ export class FoundryService {
     rawhealthkit,
     timestamp,
     device,
-    options = {}
+    options = {},
+    ontologyId = null
   }) {
     if (!auth0id) {
       throw new Error('auth0id is required for HealthKit raw export');
@@ -528,7 +529,7 @@ export class FoundryService {
       device: actionParams.device
     });
 
-    return this.applyOntologyAction(this.healthkitRawActionId, actionParams, options);
+    return this.applyOntologyAction(this.healthkitRawActionId, actionParams, options, ontologyId);
   }
 
   async listMedicationsUploads(userIdentifiers = [], { limit = 50 } = {}) {

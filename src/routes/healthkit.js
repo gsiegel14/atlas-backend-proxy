@@ -14,6 +14,9 @@ const foundryService = new FoundryService({
   healthkitRawActionId: process.env.FOUNDRY_HEALTHKIT_ACTION_ID
 });
 
+// Use the same hardcoded ontology RID as other working routes
+const ONTOLOGY_ID = 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+
 router.post('/export', async (req, res, next) => {
   try {
     const auth0id = req.user?.sub;
@@ -108,7 +111,8 @@ router.post('/export', async (req, res, next) => {
       rawhealthkit,
       timestamp: exportTimestamp,
       device: exportDevice,
-      options: typeof options === 'object' && options !== null ? options : undefined
+      options: typeof options === 'object' && options !== null ? options : undefined,
+      ontologyId: ONTOLOGY_ID
     });
 
     res.status(200).json({
