@@ -259,16 +259,17 @@ export class FoundryService {
 
   normalizeActionOptions(options = {}) {
     const normalized = {
-      mode: 'VALIDATE_AND_EXECUTE',
       returnEdits: 'NONE'
     };
 
+    // Only add mode if explicitly provided (some Foundry actions don't support it)
     if (options.mode) {
       normalized.mode = options.mode;
     }
     if (options.$mode) {
       normalized.mode = options.$mode;
     }
+    
     if (options.returnEdits) {
       normalized.returnEdits = options.returnEdits;
     }
@@ -518,7 +519,7 @@ export class FoundryService {
     }
 
     const actionParams = {
-      user_id: auth0id, // Changed from auth0id to user_id to match other actions
+      auth0id,
       rawhealthkit,
       timestamp: timestamp || new Date().toISOString(),
       device: device || 'unknown'
