@@ -518,7 +518,7 @@ export class FoundryService {
     }
 
     const actionParams = {
-      auth0id,
+      user_id: auth0id, // Changed from auth0id to user_id to match other actions
       rawhealthkit,
       timestamp: timestamp || new Date().toISOString(),
       device: device || 'unknown'
