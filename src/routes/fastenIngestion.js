@@ -153,30 +153,20 @@ router.post('/ingest', validateServiceAuth, async (req, res, next) => {
     
     const { access_token } = await tokenResponse.json();
     
-    // Format records as JSONL (newline-delimited JSON)
-    const jsonlContent = records.map(record => {
-      // Ensure proper formatting for Foundry dataset
-      const formattedRecord = {
-        record_id: `${auth0_user_id || record.auth0_user_id}_${record.resource_id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    // Format records as a single JSON object with top-level "data" array
+    const jsonDataArray = records.map(record => {
+      return {
         auth0_user_id: auth0_user_id || record.auth0_user_id || '',
         org_connection_id: record.org_connection_id || metadata?.org_connection_id || '',
-        fhir_resource: record.fhir_resource || record,
-        resource_type: record.resource_type || record.fhir_resource?.resourceType || '',
-        resource_id: record.resource_id || record.fhir_resource?.id || '',
         ingested_at: record.ingested_at || new Date().toISOString(),
-        source: record.source || metadata?.source || 'fasten-webhook-service',
-        patient_id: record.patient_id || extractPatientId(record),
-        encounter_id: record.encounter_id || extractEncounterId(record),
-        provider_org: record.provider_org || extractProviderOrg(record),
-        ingestion_run_id: metadata?.ingestion_run_id || `fasten-${Date.now()}`,
-        raw_data: JSON.stringify(record)
+        fhir_resource: record.fhir_resource || record
       };
-      return JSON.stringify(formattedRecord);
-    }).join('\n');
+    });
+    const jsonContent = JSON.stringify({ data: jsonDataArray });
     
     // Generate filename with timestamp
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const fileName = `fasten-fhir/${auth0_user_id}/${timestamp}.jsonl`;
+    const fileName = `fasten-fhir/${auth0_user_id}/${timestamp}.json`;
     
     // Upload file directly to Foundry dataset using Datasets API v2
     const uploadUrl = `${process.env.FOUNDRY_HOST}/api/v2/datasets/${FASTEN_FHIR_DATASET_RID}/files/${encodeURIComponent(fileName)}/upload?transactionType=APPEND`;
@@ -187,7 +177,7 @@ router.post('/ingest', validateServiceAuth, async (req, res, next) => {
         'Authorization': `Bearer ${access_token}`,
         'Content-Type': 'application/octet-stream'
       },
-      body: jsonlContent
+      body: jsonContent
     });
     
     if (!uploadResponse.ok) {
