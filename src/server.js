@@ -23,6 +23,7 @@ import { medicationsRouter } from './routes/medications.js';
 import { historyRouter } from './routes/history.js';
 import { intraencounterRouter } from './routes/intraencounter.js';
 import { healthkitRouter } from './routes/healthkit.js';
+import datasetsRouter from './routes/datasets.js';
 import { usernamePropagation } from './middleware/usernamePropagation.js';
 
 dotenv.config();
@@ -100,6 +101,7 @@ app.use('/api/v1/medications', createRateLimiter(50, redisClient), medicationsRo
 app.use('/api/v1/history', createRateLimiter(50, redisClient), historyRouter);
 app.use('/api/v1/intraencounter', createRateLimiter(50, redisClient), intraencounterRouter);
 app.use('/api/v1/healthkit', createRateLimiter(50, redisClient), healthkitRouter);
+app.use('/api/v1/foundry/datasets', createRateLimiter(50, redisClient), datasetsRouter);
 
 // JWT-specific error handling (must come before general error handler)
 app.use(jwtErrorHandler);
@@ -165,12 +167,13 @@ process.on('SIGINT', async () => {
   process.exit(0);
 });
 
-// Start server
-app.listen(PORT, () => {
-  logger.info(`Atlas Backend Proxy server running on port ${PORT}`);
-  logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  logger.info(`Auth0 Domain: ${process.env.AUTH0_DOMAIN}`);
-  logger.info(`Foundry Host: ${process.env.FOUNDRY_HOST}`);
-});
+if (process.env.NODE_ENV !== 'test' && (process.env.SKIP_SERVER_LISTEN ?? '').toLowerCase() !== 'true') {
+  app.listen(PORT, () => {
+    logger.info(`Atlas Backend Proxy server running on port ${PORT}`);
+    logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    logger.info(`Auth0 Domain: ${process.env.AUTH0_DOMAIN}`);
+    logger.info(`Foundry Host: ${process.env.FOUNDRY_HOST}`);
+  });
+}
 
 export default app;

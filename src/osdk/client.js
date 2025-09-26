@@ -6,9 +6,12 @@ dotenv.config();
 
 const DEFAULT_HOST = 'https://atlasengine.palantirfoundry.com';
 const host = process.env.FOUNDRY_HOST ?? DEFAULT_HOST;
+const bypassInitialization = process.env.NODE_ENV === 'test'
+    || (process.env.OSDK_CLIENT_DISABLE ?? '').toLowerCase() === 'true';
 
-// Ontology RID must be provided via environment variable
-const ontologyRid = process.env.FOUNDRY_ONTOLOGY_RID;
+// Ontology RID must be provided unless we are bypassing for tests
+const ontologyRid = process.env.FOUNDRY_ONTOLOGY_RID
+    ?? (bypassInitialization ? 'ontology-test-bypass' : undefined);
 if (!ontologyRid) {
     throw new Error('FOUNDRY_ONTOLOGY_RID environment variable is required');
 }
@@ -61,23 +64,29 @@ function createTokenProvider() {
     throw new Error('OSDK client requires FOUNDRY_TOKEN or FOUNDRY_CLIENT_ID/FOUNDRY_CLIENT_SECRET environment variables.');
 }
 
-const tokenProvider = createTokenProvider();
-
-// createClient returns a function that can be invoked with an object type export from the SDK
 let client;
-try {
-    console.log('Creating OSDK client with:', { host, ontologyRid: ontologyRid.substring(0, 20) + '...' });
-    client = createOSDKClient(host, ontologyRid, tokenProvider);
-    console.log('OSDK client created successfully');
-} catch (error) {
-    console.error('Failed to create OSDK client:', {
-        error: error.message,
-        host,
-        ontologyRid,
-        ontologyRidLength: ontologyRid.length,
-        ontologyRidType: typeof ontologyRid
-    });
-    throw error;
+
+if (bypassInitialization) {
+    console.log('Skipping OSDK client initialization (test mode)');
+    client = {};
+} else {
+    const tokenProvider = createTokenProvider();
+
+    // createClient returns a function that can be invoked with an object type export from the SDK
+    try {
+        console.log('Creating OSDK client with:', { host, ontologyRid: ontologyRid.substring(0, 20) + '...' });
+        client = createOSDKClient(host, ontologyRid, tokenProvider);
+        console.log('OSDK client created successfully');
+    } catch (error) {
+        console.error('Failed to create OSDK client:', {
+            error: error.message,
+            host,
+            ontologyRid,
+            ontologyRidLength: ontologyRid.length,
+            ontologyRidType: typeof ontologyRid
+        });
+        throw error;
+    }
 }
 
 export { client, host as osdkHost, ontologyRid as osdkOntologyRid };

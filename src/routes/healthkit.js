@@ -2,6 +2,10 @@ import express from 'express';
 import { validateTokenWithScopes } from '../middleware/auth0.js';
 import { FoundryService } from '../services/foundryService.js';
 import { logger } from '../utils/logger.js';
+import {
+  transformHealthkitNdjson,
+  HEALTHKIT_TEXT_SCHEMA_VERSION
+} from '../utils/healthkitPlaintext.js';
 
 const router = express.Router();
 
@@ -16,6 +20,12 @@ const foundryService = new FoundryService({
 
 // Use the same hardcoded ontology RID as other working routes
 const ONTOLOGY_ID = 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+const isPlaintextExportEnabled = () => (process.env.HEALTHKIT_EXPORT_ENABLE_PLAINTEXT || '').toLowerCase() === 'true';
+const resolvePlaintextMaxRows = () => {
+  const rawValue = process.env.HEALTHKIT_PLAINTEXT_MAX_MD_ROWS ?? '200';
+  const parsed = Number.parseInt(rawValue, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 200;
+};
 
 router.post('/export', async (req, res, next) => {
   try {
@@ -106,11 +116,48 @@ router.post('/export', async (req, res, next) => {
       payloadBytes: decoded.length
     });
 
+    let plaintexthealthkit = null;
+    let plaintextTransform = null;
+    if (isPlaintextExportEnabled()) {
+      plaintextTransform = transformHealthkitNdjson(decoded, {
+        maxMarkdownRows: resolvePlaintextMaxRows()
+      });
+
+      if (plaintextTransform.errors.length > 0) {
+        logger.warn('HealthKit plaintext transform reported issues', {
+          correlationId: req.correlationId,
+          errors: plaintextTransform.errors
+        });
+      }
+
+      plaintexthealthkit = {
+        schemaVersion: HEALTHKIT_TEXT_SCHEMA_VERSION,
+        ndjsonSha256: plaintextTransform.ndjsonSha256,
+        recordCount: plaintextTransform.recordCount,
+        columns: plaintextTransform.columns,
+        markdownBase64: plaintextTransform.markdownTable
+          ? Buffer.from(plaintextTransform.markdownTable, 'utf8').toString('base64')
+          : null,
+        csvBase64: plaintextTransform.csv
+          ? Buffer.from(plaintextTransform.csv, 'utf8').toString('base64')
+          : null,
+        generatedAt: new Date().toISOString(),
+        transformErrors: plaintextTransform.errors
+      };
+
+      logger.info('Generated HealthKit plaintext artifact', {
+        recordCount: plaintextTransform.recordCount,
+        ndjsonSha256: plaintextTransform.ndjsonSha256,
+        correlationId: req.correlationId
+      });
+    }
+
     const result = await foundryService.createHealthkitRaw({
       auth0id,
       rawhealthkit,
       timestamp: exportTimestamp,
       device: exportDevice,
+      plaintexthealthkit,
       options: { $returnEdits: true }, // Match TypeScript SDK format
       ontologyId: ONTOLOGY_ID
     });
@@ -120,7 +167,20 @@ router.post('/export', async (req, res, next) => {
       data: result,
       manifest: manifest || null,
       timestamp: new Date().toISOString(),
-      correlationId: req.correlationId
+      correlationId: req.correlationId,
+      plaintext: isPlaintextExportEnabled() && plaintexthealthkit
+        ? {
+            schemaVersion: plaintexthealthkit.schemaVersion,
+            recordCount: plaintexthealthkit.recordCount,
+            ndjsonSha256: plaintexthealthkit.ndjsonSha256,
+            markdownBytes: plaintextTransform?.markdownTable
+              ? Buffer.byteLength(plaintextTransform.markdownTable, 'utf8')
+              : 0,
+            csvBytes: plaintextTransform?.csv
+              ? Buffer.byteLength(plaintextTransform.csv, 'utf8')
+              : 0
+          }
+        : null
     });
   } catch (error) {
     logger.error('HealthKit raw export failed', {

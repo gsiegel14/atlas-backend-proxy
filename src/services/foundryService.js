@@ -507,6 +507,7 @@ export class FoundryService {
     rawhealthkit,
     timestamp,
     device,
+    plaintexthealthkit,
     options = {},
     ontologyId = null
   }) {
@@ -523,6 +524,10 @@ export class FoundryService {
       timestamp: timestamp || new Date().toISOString(),
       device: device || 'unknown'
     };
+
+    if (plaintexthealthkit) {
+      actionParams.plaintexthealthkit = plaintexthealthkit;
+    }
 
     logger.info('Submitting HealthKit raw export to Foundry', {
       auth0id,

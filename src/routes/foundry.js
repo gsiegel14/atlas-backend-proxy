@@ -2046,9 +2046,17 @@ router.post('/patient-chat', validateTokenWithScopes(['execute:queries']), async
       correlationId: req.correlationId
     });
 
+    const startTime = Date.now();
     const result = await foundryService.executeOntologyQuery('patientChat', {
       userid: resolvedUserId,
       userinput: userInput
+    });
+    const duration = Date.now() - startTime;
+    
+    logger.info('PatientChat query completed successfully', {
+      userid: resolvedUserId,
+      duration: `${duration}ms`,
+      correlationId: req.correlationId
     });
 
     let reply = '';
@@ -2367,6 +2375,158 @@ router.post('/media/upload', validateTokenWithScopes(['execute:actions']), async
       filename: req.body?.filename
     });
     
+    next(error);
+  }
+});
+
+// Get Fasten medications for a patient
+router.get('/medications', validateTokenWithScopes(['read:patient']), async (req, res, next) => {
+  let patientContext;
+  try {
+    patientContext = await resolvePatientContext(req, { routeName: 'medications' });
+    const patientId = typeof patientContext.patientId === 'string' ? patientContext.patientId.trim() : '';
+    
+    if (!patientId) {
+      return respondMissingPatientId(req, res, 'medications');
+    }
+
+    const parsedPageSize = Number.parseInt(req.query.pageSize, 10);
+    const pageSize = Math.max(Math.min(Number.isFinite(parsedPageSize) ? parsedPageSize : 250, 500), 1);
+    const pageToken = typeof req.query.pageToken === 'string' && req.query.pageToken.trim().length > 0
+      ? req.query.pageToken.trim()
+      : undefined;
+
+    const ontologyId = foundryService.getApiOntologyRid() || 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+    if (!ontologyId) {
+      throw new Error('Foundry medications ontology RID is not configured');
+    }
+
+    const fastenMedicationsObjectType = process.env.FOUNDRY_FASTEN_MEDICATIONS_OBJECT_TYPE || 'FastenMedications';
+
+    const filters = [];
+    const patientFilter = buildPatientFilter(patientId);
+    if (patientFilter) {
+      filters.push(patientFilter);
+    }
+
+    // Add patientId filter if provided in query
+    const queryPatientId = typeof req.query.patientId === 'string' ? req.query.patientId.trim() : '';
+    if (queryPatientId && queryPatientId !== patientId) {
+      filters.push({
+        type: 'eq',
+        field: 'patientId',
+        value: queryPatientId
+      });
+    }
+
+    const payload = {
+      where: filters.length === 1 ? filters[0] : { type: 'and', value: filters },
+      pageSize
+    };
+
+    if (pageToken) {
+      payload.pageToken = pageToken;
+    }
+
+    logger.info('Fetching Fasten medications from Foundry', {
+      patientId,
+      queryPatientId: queryPatientId || null,
+      pageSize,
+      pageToken,
+      payload: JSON.stringify(payload),
+      ontologyObjectType: fastenMedicationsObjectType,
+      correlationId: req.correlationId
+    });
+
+    let result;
+    try {
+      result = await foundryService.searchOntologyObjects(ontologyId, fastenMedicationsObjectType, payload);
+    } catch (error) {
+      if (error.status === 429) {
+        return res.status(503).json({
+          error: {
+            code: 'FOUNDRY_THROTTLED',
+            message: 'Foundry returned throttling response',
+            correlationId: req.correlationId,
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+
+      if (error.status === 400) {
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_REQUEST',
+            message: error.foundryError?.message || 'Invalid Foundry request parameters',
+            correlationId: req.correlationId,
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+
+      throw error;
+    }
+
+    const rawEntries = [];
+    if (Array.isArray(result?.data)) {
+      rawEntries.push(...result.data);
+    }
+    if (Array.isArray(result?.objects)) {
+      rawEntries.push(...result.objects);
+    }
+    if (Array.isArray(result?.results)) {
+      rawEntries.push(...result.results);
+    }
+    if (Array.isArray(result?.entries)) {
+      rawEntries.push(...result.entries);
+    }
+
+    // Normalize medication entries to extract properties
+    const medications = rawEntries.map((entry) => {
+      if (entry && typeof entry === 'object') {
+        if (entry.properties && typeof entry.properties === 'object') {
+          return entry.properties;
+        }
+        return entry;
+      }
+      return {};
+    });
+
+    const responsePayload = {
+      success: true,
+      data: medications,
+      nextPageToken: result?.nextPageToken || result?.next_page_token || result?.pageToken || null,
+      fetchedAt: new Date().toISOString(),
+      correlationId: req.correlationId
+    };
+
+    logger.info('Foundry Fasten medications response', {
+      patientId,
+      count: medications.length,
+      nextPageToken: responsePayload.nextPageToken,
+      correlationId: req.correlationId
+    });
+
+    res.json(responsePayload);
+  } catch (error) {
+    if (error.message === 'Foundry service temporarily unavailable') {
+      return res.status(503).json({
+        error: {
+          code: 'FOUNDRY_UNAVAILABLE',
+          message: 'Foundry service temporarily unavailable',
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    logger.error('Failed to fetch Fasten medications', {
+      patientId: patientContext?.patientId,
+      error: error.message,
+      status: error.status,
+      correlationId: req.correlationId
+    });
+
     next(error);
   }
 });

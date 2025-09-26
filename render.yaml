@@ -2,7 +2,7 @@ services:
   - type: web
     name: atlas-backend-proxy
     runtime: node
-    plan: starter
+    plan: standard  # Upgraded from starter for better performance and timeout handling
     region: oregon
     buildCommand: npm install
     startCommand: npm start
@@ -41,10 +41,16 @@ services:
         value: create-medications-upload
       - key: FOUNDRY_MEDICATIONS_OBJECT_TYPE
         value: MedicationsUpload
+      - key: FOUNDRY_MEDICATIONS_ONTOLOGY_RID
+        value: ri.ontology.main.ontology.8208fd4c-b7fb-45ef-bf49-99a402136e58
       - key: FOUNDRY_CHAT_HISTORY_ACTION_ID
         value: create-ai-chat-history-production
       - key: FOUNDRY_INTRAENCOUNTER_ACTION_ID
         value: create-atlas-intraencounter-production
+      - key: FOUNDRY_HEALTHKIT_ACTION_ID
+        value: create-healthkit-raw
+      - key: FOUNDRY_FASTEN_FHIR_ACTION_ID
+        value: create-fasten-fhir-data
     disk:
       name: atlas-backend-proxy-disk
       mountPath: /opt/render/project/logs
