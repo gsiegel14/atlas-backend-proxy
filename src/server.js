@@ -25,6 +25,7 @@ import { intraencounterRouter } from './routes/intraencounter.js';
 import { healthkitRouter } from './routes/healthkit.js';
 import datasetsRouter from './routes/datasets.js';
 import fastenDatasetsRouter from './routes/fastenDatasets.js';
+import fastenIngestionRouter from './routes/fastenIngestion.js';
 import { usernamePropagation } from './middleware/usernamePropagation.js';
 
 dotenv.config();
@@ -104,6 +105,7 @@ app.use('/api/v1/intraencounter', createRateLimiter(50, redisClient), intraencou
 app.use('/api/v1/healthkit', createRateLimiter(50, redisClient), healthkitRouter);
 app.use('/api/v1/foundry/datasets', createRateLimiter(50, redisClient), datasetsRouter);
 app.use('/api/v1/fasten/datasets', createRateLimiter(50, redisClient), fastenDatasetsRouter);
+app.use('/api/v1/fasten/fhir', createRateLimiter(100, redisClient), fastenIngestionRouter);
 
 // JWT-specific error handling (must come before general error handler)
 app.use(jwtErrorHandler);

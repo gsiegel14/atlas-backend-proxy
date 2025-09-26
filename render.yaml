@@ -51,6 +51,10 @@ services:
         value: create-healthkit-raw
       - key: FOUNDRY_FASTEN_FHIR_ACTION_ID
         value: create-fasten-fhir-data
+      - key: SERVICE_SECRET
+        sync: false
+      - key: WEBHOOK_SERVICE_TOKEN
+        sync: false
     disk:
       name: atlas-backend-proxy-disk
       mountPath: /opt/render/project/logs
