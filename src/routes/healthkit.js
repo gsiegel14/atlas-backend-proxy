@@ -43,7 +43,7 @@ async function uploadHealthKitToDataset(auth0id, rawhealthkit, device, timestamp
     throw error;
   }
 
-  // Build single-file JSON payload with metadata wrapper
+  // Build NDJSON content (one JSON object per line) for Foundry dataset compatibility
   const exportTimestamp = typeof timestamp === 'string' && timestamp.length > 0
     ? timestamp
     : new Date().toISOString();
@@ -51,14 +51,40 @@ async function uploadHealthKitToDataset(auth0id, rawhealthkit, device, timestamp
     ? device
     : 'unknown';
 
-  const jsonContent = JSON.stringify({
-    metadata: {
-      auth0_user_id: auth0id,
-      device: exportDevice,
-      timestamp: exportTimestamp
-    },
-    data: records
-  });
+  // Flatten each HealthKit record with metadata for dataset storage
+  const datasetRecords = records.map(record => ({
+    // User and device metadata
+    auth0_user_id: auth0id,
+    device: exportDevice,
+    ingested_at: new Date().toISOString(),
+    export_timestamp: exportTimestamp,
+    
+    // HealthKit record data (flattened)
+    sample_type: record.sampleType || record.type || '',
+    source_name: record.sourceName || record.source || '',
+    sample_class: record.sampleClass || '',
+    quantity_type: record.quantityType || '',
+    source_version: record.sourceVersion || '',
+    data_type: record.dataType || '',
+    uuid: record.uuid || '',
+    start_date: record.startDate || record.start || '',
+    end_date: record.endDate || record.end || '',
+    value_double: record.valueDouble || record.value || null,
+    unit: record.unit || '',
+    
+    // Device information (flattened)
+    device_hardware_version: record.device?.hardwareVersion || '',
+    device_model: record.device?.model || '',
+    device_name: record.device?.name || '',
+    device_manufacturer: record.device?.manufacturer || '',
+    device_software_version: record.device?.softwareVersion || '',
+    
+    // Store original record as JSON string for reference
+    raw_healthkit_record: JSON.stringify(record)
+  }));
+
+  // Create NDJSON content (newline-delimited JSON)
+  const ndjsonContent = datasetRecords.map(record => JSON.stringify(record)).join('\n');
 
   logger.info('Uploading HealthKit data to dataset', {
     datasetRid: HEALTHKIT_DATASET_RID,
@@ -87,9 +113,9 @@ async function uploadHealthKitToDataset(auth0id, rawhealthkit, device, timestamp
 
   const { access_token } = await tokenResponse.json();
 
-  // Generate filename with timestamp
+  // Generate filename with timestamp (.ndjson extension for clarity)
   const safeTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const fileName = `healthkit/raw/${auth0id}/${safeTimestamp}.json`;
+  const fileName = `healthkit/raw/${auth0id}/${safeTimestamp}.ndjson`;
 
   // Upload file directly to Foundry dataset using Datasets API v2
   const uploadUrl = `${process.env.FOUNDRY_HOST}/api/v2/datasets/${HEALTHKIT_DATASET_RID}/files/${encodeURIComponent(fileName)}/upload?transactionType=APPEND`;
@@ -98,9 +124,9 @@ async function uploadHealthKitToDataset(auth0id, rawhealthkit, device, timestamp
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${access_token}`,
-      'Content-Type': 'application/octet-stream'
+      'Content-Type': 'application/x-ndjson'
     },
-    body: jsonContent
+    body: ndjsonContent
   });
 
   if (!uploadResponse.ok) {
@@ -129,7 +155,9 @@ async function uploadHealthKitToDataset(auth0id, rawhealthkit, device, timestamp
     success: true,
     dataset_rid: HEALTHKIT_DATASET_RID,
     records_ingested: records.length,
+    dataset_records_created: datasetRecords.length,
     file_path: fileName,
+    file_format: 'ndjson',
     transaction_rid: transactionRid,
     ingestion_timestamp: new Date().toISOString(),
     correlationId
