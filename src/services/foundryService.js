@@ -259,16 +259,17 @@ export class FoundryService {
 
   normalizeActionOptions(options = {}) {
     const normalized = {
-      mode: 'VALIDATE_AND_EXECUTE',
       returnEdits: 'NONE'
     };
 
+    // Only add mode if explicitly provided (some Foundry actions don't support it)
     if (options.mode) {
       normalized.mode = options.mode;
     }
     if (options.$mode) {
       normalized.mode = options.$mode;
     }
+    
     if (options.returnEdits) {
       normalized.returnEdits = options.returnEdits;
     }
@@ -535,6 +536,56 @@ export class FoundryService {
     });
 
     return this.applyOntologyAction(this.healthkitRawActionId, actionParams, options, ontologyId);
+  }
+
+  async batchCreateHealthkitRaw({
+    requests,
+    options = {},
+    ontologyId = null
+  }) {
+    if (!Array.isArray(requests) || requests.length === 0) {
+      throw new Error('requests array is required for batch HealthKit raw export');
+    }
+
+    // Validate all requests have required parameters
+    for (const request of requests) {
+      if (!request.parameters?.auth0id) {
+        throw new Error('auth0id is required in each request');
+      }
+      if (!request.parameters?.rawhealthkit) {
+        throw new Error('rawhealthkit is required in each request');
+      }
+    }
+
+    const payload = {
+      requests,
+      options: this.normalizeActionOptions(options)
+    };
+
+    const ontologyIdToUse = ontologyId || this.ontologyRid;
+    if (!ontologyIdToUse) {
+      throw new Error('Foundry ontology RID is not configured');
+    }
+
+    const apiOntologyId = this.getApiOntologyRid(ontologyIdToUse);
+    
+    // For batch operations, we use the applyBatch endpoint
+    const endpoint = `/api/v2/ontologies/${apiOntologyId}/actions/${this.healthkitRawActionId}/applyBatch`;
+
+    logger.info('Submitting batch HealthKit raw export to Foundry', {
+      requestCount: requests.length,
+      endpoint
+    });
+
+    try {
+      return await this.apiCall('POST', endpoint, payload);
+    } catch (error) {
+      logger.error('Batch HealthKit export failed', {
+        error: error.message,
+        endpoint
+      });
+      throw error;
+    }
   }
 
   async listMedicationsUploads(userIdentifiers = [], { limit = 50 } = {}) {
