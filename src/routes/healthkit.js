@@ -2,6 +2,7 @@ import express from 'express';
 import { validateTokenWithScopes } from '../middleware/auth0.js';
 import { FoundryService } from '../services/foundryService.js';
 import { logger } from '../utils/logger.js';
+import fetch from 'node-fetch';
 
 const router = express.Router();
 
@@ -16,6 +17,9 @@ const foundryService = new FoundryService({
 
 // Use the same hardcoded ontology RID as other working routes
 const ONTOLOGY_ID = 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+
+// Target dataset RID for HealthKit raw data uploads (single JSON file per request)
+const HEALTHKIT_DATASET_RID = 'ri.foundry.main.dataset.19102749-23e6-4fa8-827e-70eae2b94730';
 
 // Batch export endpoint for multiple chunks
 router.post('/export/batch', async (req, res, next) => {
@@ -254,6 +258,209 @@ router.post('/export', async (req, res, next) => {
       error: error.message,
       correlationId: req.correlationId,
       user: req.user?.sub
+    });
+    next(error);
+  }
+});
+
+/**
+ * Ingest HealthKit base64 NDJSON and write as a single JSON file to Foundry dataset
+ * Mirrors the Fasten FHIR dataset upload pipeline using Datasets API v2
+ */
+router.post('/ingest', async (req, res, next) => {
+  try {
+    const auth0id = req.user?.sub;
+    if (!auth0id) {
+      return res.status(400).json({
+        error: {
+          code: 'MISSING_IDENTITY',
+          message: 'Unable to resolve Auth0 identifier for HealthKit ingestion',
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    const { rawhealthkit, timestamp, device } = req.body || {};
+    if (typeof rawhealthkit !== 'string' || rawhealthkit.length === 0) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_PAYLOAD',
+          message: 'rawhealthkit (base64 NDJSON) is required',
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    let decodedBuffer;
+    try {
+      decodedBuffer = Buffer.from(rawhealthkit, 'base64');
+    } catch (error) {
+      logger.warn('HealthKit ingest payload is not valid base64', {
+        error: error.message,
+        correlationId: req.correlationId,
+        user: auth0id
+      });
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_PAYLOAD',
+          message: 'rawhealthkit must be valid base64',
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    // Enforce size limit similar to /export (5 MB raw NDJSON)
+    const MAX_PAYLOAD_BYTES = 5 * 1024 * 1024;
+    if (!decodedBuffer || decodedBuffer.length === 0) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_PAYLOAD',
+          message: 'rawhealthkit decoded payload is empty',
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+    if (decodedBuffer.length > MAX_PAYLOAD_BYTES) {
+      logger.warn('HealthKit ingest exceeds payload limit', {
+        size: decodedBuffer.length,
+        limit: MAX_PAYLOAD_BYTES,
+        correlationId: req.correlationId,
+        user: auth0id
+      });
+      return res.status(413).json({
+        error: {
+          code: 'PAYLOAD_TOO_LARGE',
+          message: 'HealthKit ingest exceeds supported payload size',
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    // Parse NDJSON into array of JSON objects
+    const ndjson = decodedBuffer.toString('utf-8');
+    const lines = ndjson.split(/\r?\n/).filter(l => l.trim().length > 0);
+    const records = [];
+    try {
+      for (const line of lines) {
+        records.push(JSON.parse(line));
+      }
+    } catch (error) {
+      logger.warn('Failed to parse NDJSON line in HealthKit ingest', {
+        error: error.message,
+        correlationId: req.correlationId
+      });
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_NDJSON',
+          message: 'rawhealthkit must be base64-encoded NDJSON',
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    // Build single-file JSON payload
+    const exportTimestamp = typeof timestamp === 'string' && timestamp.length > 0
+      ? timestamp
+      : new Date().toISOString();
+    const exportDevice = typeof device === 'string' && device.length > 0
+      ? device
+      : 'unknown';
+
+    const jsonContent = JSON.stringify({
+      metadata: {
+        auth0_user_id: auth0id,
+        device: exportDevice,
+        timestamp: exportTimestamp
+      },
+      data: records
+    });
+
+    logger.info('Processing HealthKit dataset ingestion', {
+      datasetRid: HEALTHKIT_DATASET_RID,
+      recordCount: records.length,
+      user: auth0id,
+      correlationId: req.correlationId
+    });
+
+    // Get OAuth token for Foundry
+    const tokenResponse = await fetch(process.env.FOUNDRY_OAUTH_TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: process.env.FOUNDRY_CLIENT_ID,
+        client_secret: process.env.FOUNDRY_CLIENT_SECRET,
+        scope: 'api:datasets-read api:datasets-write'
+      })
+    });
+
+    if (!tokenResponse.ok) {
+      throw new Error(`Failed to get Foundry token: ${tokenResponse.status}`);
+    }
+
+    const { access_token } = await tokenResponse.json();
+
+    // Generate filename with timestamp
+    const safeTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const fileName = `healthkit/raw/${auth0id}/${safeTimestamp}.json`;
+
+    // Upload file directly to Foundry dataset using Datasets API v2
+    const uploadUrl = `${process.env.FOUNDRY_HOST}/api/v2/datasets/${HEALTHKIT_DATASET_RID}/files/${encodeURIComponent(fileName)}/upload?transactionType=APPEND`;
+
+    const uploadResponse = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${access_token}`,
+        'Content-Type': 'application/octet-stream'
+      },
+      body: jsonContent
+    });
+
+    if (!uploadResponse.ok) {
+      const errorText = await uploadResponse.text();
+      logger.error('Failed to upload HealthKit JSON to Foundry dataset', {
+        status: uploadResponse.status,
+        error: errorText,
+        correlationId: req.correlationId
+      });
+      throw new Error(`Foundry upload failed: ${uploadResponse.status} - ${errorText}`);
+    }
+
+    const uploadResult = await uploadResponse.json();
+    const transactionRid = uploadResult.transactionRid;
+
+    logger.info('Successfully uploaded HealthKit JSON to Foundry', {
+      datasetRid: HEALTHKIT_DATASET_RID,
+      transactionRid,
+      filePath: fileName,
+      recordCount: records.length,
+      auth0UserId: auth0id,
+      correlationId: req.correlationId
+    });
+
+    res.json({
+      success: true,
+      dataset_rid: HEALTHKIT_DATASET_RID,
+      records_ingested: records.length,
+      file_path: fileName,
+      transaction_rid: transactionRid,
+      ingestion_timestamp: new Date().toISOString(),
+      correlationId: req.correlationId
+    });
+  } catch (error) {
+    logger.error('Failed to ingest HealthKit data to dataset', {
+      error: error.message,
+      stack: error.stack,
+      datasetRid: HEALTHKIT_DATASET_RID,
+      correlationId: req.correlationId
     });
     next(error);
   }
