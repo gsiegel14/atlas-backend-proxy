@@ -20,7 +20,7 @@ export const validateAuth0Token = jwt({
   algorithms: ['RS256'],
   requestProperty: 'user'
 }).unless({
-  path: ['/health', '/health/ready', '/health/live']
+  path: ['/health', '/health/ready', '/health/live', '/api/v1/fasten/fhir/ingest', '/api/v1/fasten/fhir/health']
 });
 
 // Enhanced token validation with additional checks

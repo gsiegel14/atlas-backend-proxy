@@ -6,7 +6,7 @@ import fetch from 'node-fetch';
 const router = express.Router();
 
 // Target dataset RID for Fasten FHIR data
-const FASTEN_FHIR_DATASET_RID = 'ri.foundry.main.dataset.3a90fb2b-7e9a-4a03-94b0-30839be53091';
+const FASTEN_FHIR_DATASET_RID = 'ri.foundry.main.dataset.94686469-301b-462e-96e9-4a8572611178';
 
 /**
  * Upload Fasten FHIR data directly to Foundry dataset using the Datasets API v2
