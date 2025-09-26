@@ -7,6 +7,52 @@ const router = express.Router();
 // Target dataset RID for Fasten FHIR data
 const FASTEN_FHIR_DATASET_RID = 'ri.foundry.main.dataset.94686469-301b-462e-96e9-4a8572611178';
 
+// Helper functions to extract data from FHIR resources
+function extractPatientId(record) {
+  const resource = record.fhir_resource || record;
+  if (resource.resourceType === 'Patient') {
+    return resource.id;
+  }
+  if (resource.subject?.reference) {
+    return resource.subject.reference.replace('Patient/', '');
+  }
+  if (resource.patient?.reference) {
+    return resource.patient.reference.replace('Patient/', '');
+  }
+  return '';
+}
+
+function extractEncounterId(record) {
+  const resource = record.fhir_resource || record;
+  if (resource.resourceType === 'Encounter') {
+    return resource.id;
+  }
+  if (resource.encounter?.reference) {
+    return resource.encounter.reference.replace('Encounter/', '');
+  }
+  if (resource.context?.reference) {
+    return resource.context.reference.replace('Encounter/', '');
+  }
+  return '';
+}
+
+function extractProviderOrg(record) {
+  const resource = record.fhir_resource || record;
+  if (resource.resourceType === 'Organization') {
+    return resource.name || resource.id;
+  }
+  if (resource.organization?.display) {
+    return resource.organization.display;
+  }
+  if (resource.performer?.[0]?.display) {
+    return resource.performer[0].display;
+  }
+  if (resource.serviceProvider?.display) {
+    return resource.serviceProvider.display;
+  }
+  return '';
+}
+
 /**
  * Service-to-service authentication middleware
  * Accepts either a shared secret or specific service tokens
@@ -76,6 +122,17 @@ router.post('/ingest', validateServiceAuth, async (req, res, next) => {
       metadata
     });
     
+    // Handle empty records case
+    if (records.length === 0) {
+      return res.status(200).json({
+        message: 'No records to ingest',
+        dataset_rid: FASTEN_FHIR_DATASET_RID,
+        records_ingested: 0,
+        correlationId: req.correlationId,
+        timestamp: new Date().toISOString()
+      });
+    }
+    
     // Get OAuth token for Foundry
     const tokenResponse = await fetch(process.env.FOUNDRY_OAUTH_TOKEN_URL, {
       method: 'POST',
@@ -96,128 +153,61 @@ router.post('/ingest', validateServiceAuth, async (req, res, next) => {
     
     const { access_token } = await tokenResponse.json();
     
-    // Step 1: Create a transaction on the dataset
-    const transactionResponse = await fetch(
-      `${process.env.FOUNDRY_HOST}/api/v2/datasets/${FASTEN_FHIR_DATASET_RID}/transactions`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${access_token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          transactionType: 'APPEND'
-        })
-      }
-    );
-    
-    if (!transactionResponse.ok) {
-      const errorText = await transactionResponse.text();
-      logger.error('Failed to create Foundry transaction', {
-        status: transactionResponse.status,
-        error: errorText,
-        correlationId: req.correlationId
-      });
-      throw new Error(`Failed to create transaction: ${transactionResponse.status} - ${errorText}`);
-    }
-    
-    const transaction = await transactionResponse.json();
-    const transactionRid = transaction.rid;
-    
-    logger.info('Created Foundry transaction', {
-      datasetRid: FASTEN_FHIR_DATASET_RID,
-      transactionRid,
-      correlationId: req.correlationId
-    });
-    
-    // Step 2: Format and upload the data
-    const formattedRecords = records.map(record => {
+    // Format records as JSONL (newline-delimited JSON)
+    const jsonlContent = records.map(record => {
       // Ensure proper formatting for Foundry dataset
-      return {
+      const formattedRecord = {
         record_id: `${auth0_user_id || record.auth0_user_id}_${record.resource_id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         auth0_user_id: auth0_user_id || record.auth0_user_id || '',
-        org_connection_id: record.org_connection_id || '',
+        org_connection_id: record.org_connection_id || metadata?.org_connection_id || '',
+        fhir_resource: record.fhir_resource || record,
         resource_type: record.resource_type || record.fhir_resource?.resourceType || '',
         resource_id: record.resource_id || record.fhir_resource?.id || '',
-        fhir_resource_json: typeof record.fhir_resource === 'string' 
-          ? record.fhir_resource 
-          : JSON.stringify(record.fhir_resource || record),
-        patient_id: record.patient_id || '',
-        encounter_id: record.encounter_id || '',
-        provider_org: record.provider_org || '',
         ingested_at: record.ingested_at || new Date().toISOString(),
-        resource_date: record.resource_date || '',
-        source: record.source || 'fasten-connect',
-        ingestion_run_id: metadata?.ingestion_run_id || `run_${Date.now()}`,
-        status: record.status || '',
-        category: record.category || '',
-        code_display: record.code_display || '',
-        value_quantity: record.value_quantity || '',
-        value_string: record.value_string || ''
+        source: record.source || metadata?.source || 'fasten-webhook-service',
+        patient_id: record.patient_id || extractPatientId(record),
+        encounter_id: record.encounter_id || extractEncounterId(record),
+        provider_org: record.provider_org || extractProviderOrg(record),
+        ingestion_run_id: metadata?.ingestion_run_id || `fasten-${Date.now()}`,
+        raw_data: JSON.stringify(record)
       };
+      return JSON.stringify(formattedRecord);
+    }).join('\n');
+    
+    // Generate filename with timestamp
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const fileName = `fasten-fhir/${auth0_user_id}/${timestamp}.jsonl`;
+    
+    // Upload file directly to Foundry dataset using Datasets API v2
+    const uploadUrl = `${process.env.FOUNDRY_HOST}/api/v2/datasets/${FASTEN_FHIR_DATASET_RID}/files/${encodeURIComponent(fileName)}/upload?transactionType=APPEND`;
+    
+    const uploadResponse = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${access_token}`,
+        'Content-Type': 'application/octet-stream'
+      },
+      body: jsonlContent
     });
-    
-    // Convert to NDJSON format
-    const ndjson = formattedRecords.map(record => JSON.stringify(record)).join('\n');
-    
-    // Upload the data
-    const uploadResponse = await fetch(
-      `${process.env.FOUNDRY_HOST}/api/v2/datasets/${FASTEN_FHIR_DATASET_RID}/transactions/${transactionRid}/files/data.jsonl`,
-      {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${access_token}`,
-          'Content-Type': 'application/x-ndjson'
-        },
-        body: ndjson
-      }
-    );
     
     if (!uploadResponse.ok) {
       const errorText = await uploadResponse.text();
-      logger.error('Failed to upload data to Foundry', {
+      logger.error('Failed to upload to Foundry dataset', {
         status: uploadResponse.status,
         error: errorText,
         correlationId: req.correlationId
       });
-      throw new Error(`Failed to upload data: ${uploadResponse.status} - ${errorText}`);
+      throw new Error(`Foundry upload failed: ${uploadResponse.status} - ${errorText}`);
     }
     
-    logger.info('Uploaded data to Foundry transaction', {
+    const uploadResult = await uploadResponse.json();
+    const transactionRid = uploadResult.transactionRid;
+    
+    logger.info('Successfully uploaded Fasten FHIR data to Foundry', {
       datasetRid: FASTEN_FHIR_DATASET_RID,
       transactionRid,
-      recordCount: formattedRecords.length,
-      correlationId: req.correlationId
-    });
-    
-    // Step 3: Commit the transaction
-    const commitResponse = await fetch(
-      `${process.env.FOUNDRY_HOST}/api/v2/datasets/${FASTEN_FHIR_DATASET_RID}/transactions/${transactionRid}/commit`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${access_token}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-    
-    if (!commitResponse.ok) {
-      const errorText = await commitResponse.text();
-      logger.error('Failed to commit Foundry transaction', {
-        status: commitResponse.status,
-        error: errorText,
-        correlationId: req.correlationId
-      });
-      throw new Error(`Failed to commit transaction: ${commitResponse.status} - ${errorText}`);
-    }
-    
-    const commitResult = await commitResponse.json();
-    
-    logger.info('Successfully ingested Fasten FHIR data to Foundry', {
-      datasetRid: FASTEN_FHIR_DATASET_RID,
-      transactionRid,
-      recordCount: formattedRecords.length,
+      filePath: fileName,
+      recordCount: records.length,
       auth0UserId: auth0_user_id,
       serviceAuth: req.serviceAuth,
       correlationId: req.correlationId
@@ -226,10 +216,11 @@ router.post('/ingest', validateServiceAuth, async (req, res, next) => {
     res.json({
       success: true,
       dataset_rid: FASTEN_FHIR_DATASET_RID,
-      records_ingested: formattedRecords.length,
+      records_ingested: records.length,
+      file_path: fileName,
       transaction_rid: transactionRid,
-      commit_result: commitResult,
-      ingestion_timestamp: new Date().toISOString()
+      ingestion_timestamp: new Date().toISOString(),
+      correlationId: req.correlationId
     });
     
   } catch (error) {
