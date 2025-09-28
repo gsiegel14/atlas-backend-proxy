@@ -3,6 +3,7 @@ import { validateTokenWithScopes } from '../middleware/auth0.js';
 import { FoundryService } from '../services/foundryService.js';
 import { client as osdkClient, osdkHost, osdkOntologyRid } from '../osdk/client.js';
 import { logger } from '../utils/logger.js';
+import { createConfidentialOauthClient } from '@osdk/oauth';
 
 const router = express.Router();
 
@@ -16,6 +17,114 @@ const foundryService = new FoundryService({
   medicationsActionId: process.env.FOUNDRY_MEDICATIONS_ACTION_ID,
   medicationsUploadObjectType: process.env.FOUNDRY_MEDICATIONS_OBJECT_TYPE
 });
+
+// REST API fallback for patient profile search
+async function searchPatientProfileViaREST(value, fieldCandidates, limit, correlationId) {
+  try {
+    const tokenProvider = createConfidentialOauthClient(
+      process.env.FOUNDRY_CLIENT_ID,
+      process.env.FOUNDRY_CLIENT_SECRET,
+      osdkHost,
+      ['api:use-ontologies-read']
+    );
+    
+    const token = await tokenProvider();
+    const pageSize = Math.max(Math.min(parseInt(limit, 10) || 1, 100), 1);
+    
+    // Convert ontology RID format for REST API
+    let restOntologyRid = osdkOntologyRid;
+    if (osdkOntologyRid.startsWith('ri.ontology.main.ontology.')) {
+      const uuid = osdkOntologyRid.replace('ri.ontology.main.ontology.', '');
+      restOntologyRid = `ontology-${uuid}`;
+    }
+    
+    const searchUrl = `${osdkHost}/api/v2/ontologies/${restOntologyRid}/objects/A/search`;
+    
+    // Try each field candidate
+    for (const field of fieldCandidates) {
+      const searchPayload = {
+        where: {
+          type: 'eq',
+          field: field,
+          value: value
+        },
+        orderBy: {
+          fields: [{ field: field, direction: 'asc' }]
+        },
+        pageSize: pageSize
+      };
+      
+      logger.info('REST API patient profile search attempt', {
+        searchUrl,
+        field,
+        value,
+        correlationId
+      });
+      
+      const response = await fetch(searchUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(searchPayload)
+      });
+      
+      if (!response.ok) {
+        logger.warn('REST API search failed for field', {
+          field,
+          status: response.status,
+          statusText: response.statusText,
+          correlationId
+        });
+        continue;
+      }
+      
+      const searchResult = await response.json();
+      
+      if (searchResult.data && searchResult.data.length > 0) {
+        const objects = searchResult.data.map(record => ({
+          rid: record.rid || record.__rid,
+          properties: record,
+          ontologyId: osdkOntologyRid,
+          sourceURL: searchUrl,
+          httpStatus: 200
+        }));
+        
+        logger.info('REST API patient profile search success', {
+          field,
+          count: objects.length,
+          correlationId
+        });
+        
+        return {
+          success: true,
+          objects,
+          source: 'REST_API'
+        };
+      }
+    }
+    
+    logger.info('REST API patient profile search returned no results', {
+      value,
+      fields: fieldCandidates,
+      correlationId
+    });
+    
+    return {
+      success: true,
+      objects: [],
+      source: 'REST_API'
+    };
+    
+  } catch (error) {
+    logger.error('REST API patient profile search failed', {
+      error: error.message,
+      correlationId
+    });
+    throw error;
+  }
+}
 
 // Get patient dashboard
 router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboard']), async (req, res, next) => {
@@ -120,7 +229,9 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
       ]
     };
 
-    // Try to get patient profile data if OSDK client is available
+    // Try to get patient profile data - OSDK first, then REST API fallback
+    let profileFound = false;
+    
     if (osdkClient && typeof osdkClient === 'function') {
       try {
         const patientObjects = osdkClient('A');
@@ -145,7 +256,8 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
             }
           };
           
-          logger.info('Enhanced dashboard with patient profile data', {
+          profileFound = true;
+          logger.info('Enhanced dashboard with patient profile data (OSDK)', {
             patientId: effectivePatientId,
             hasFirstName: !!patientProfile.firstName,
             hasLastName: !!patientProfile.lastName,
@@ -153,14 +265,63 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
           });
         }
       } catch (profileError) {
-        logger.warn('Failed to fetch patient profile for dashboard', {
+        logger.warn('OSDK failed for dashboard profile, trying REST API fallback', {
           patientId: effectivePatientId,
           error: profileError.message,
           correlationId: req.correlationId
         });
       }
-    } else {
-      // OSDK client not available, create a fallback patient profile
+    }
+    
+    // If OSDK didn't work, try REST API fallback
+    if (!profileFound) {
+      try {
+        const restResult = await searchPatientProfileViaREST(
+          effectivePatientId, 
+          ['user_id', 'patientId', 'patient_id'], 
+          1, 
+          req.correlationId
+        );
+        
+        if (restResult.objects && restResult.objects.length > 0) {
+          const patientProfile = restResult.objects[0].properties;
+          
+          // Merge patient profile data into dashboard response
+          dashboardData = {
+            ...dashboardData,
+            rid: restResult.objects[0].rid,
+            properties: {
+              firstName: patientProfile.firstName,
+              lastName: patientProfile.lastName,
+              email: patientProfile.email,
+              phonenumber: patientProfile.phonenumber,
+              address: patientProfile.address,
+              user_id: patientProfile.user_id,
+              patientId: patientProfile.patientId || effectivePatientId,
+              ...patientProfile
+            }
+          };
+          
+          profileFound = true;
+          logger.info('Enhanced dashboard with patient profile data (REST API)', {
+            patientId: effectivePatientId,
+            hasFirstName: !!patientProfile.firstName,
+            hasLastName: !!patientProfile.lastName,
+            correlationId: req.correlationId
+          });
+        }
+      } catch (restError) {
+        logger.warn('REST API also failed for dashboard profile', {
+          patientId: effectivePatientId,
+          error: restError.message,
+          correlationId: req.correlationId
+        });
+      }
+    }
+    
+    // If neither OSDK nor REST API worked, use fallback
+    if (!profileFound) {
+      // Create a fallback patient profile
       // Extract user info from Auth0 user ID if possible
       const userIdParts = effectivePatientId.split('|');
       const userIdentifier = userIdParts.length > 1 ? userIdParts[1] : effectivePatientId;
@@ -178,7 +339,7 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
         }
       };
       
-      logger.info('Using fallback patient profile (OSDK unavailable)', {
+      logger.info('Using fallback patient profile (no data source available)', {
         patientId: effectivePatientId,
         correlationId: req.correlationId
       });
@@ -251,39 +412,59 @@ router.post('/profile/search', validateTokenWithScopes(['read:patient']), async 
     const pageSize = Math.max(Math.min(parseInt(limit, 10) || 1, 100), 1);
     const requestUrl = `${osdkHost}/api/v2/ontologies/${osdkOntologyRid}/objects/${objectTypePath}/search`;
     
-    // Check if OSDK client is available
+    // Try OSDK client first, fallback to REST API if it fails
+    let useRestApiFallback = false;
+    let patientObjects;
+    
     if (!osdkClient || typeof osdkClient !== 'function') {
-      logger.error('OSDK client not available for patient profile search', {
+      logger.warn('OSDK client not available, using REST API fallback', {
         osdkClientType: typeof osdkClient,
         correlationId: req.correlationId
       });
-      return res.status(503).json({
-        error: {
-          code: 'INTERNAL_ERROR',
-          message: 'Internal server error',
+      useRestApiFallback = true;
+    } else {
+      try {
+        patientObjects = osdkClient('A');
+      } catch (error) {
+        logger.warn('OSDK client failed, falling back to REST API', {
+          error: error.message,
           correlationId: req.correlationId,
-          timestamp: new Date().toISOString()
-        }
-      });
+          user: req.user.sub
+        });
+        useRestApiFallback = true;
+      }
     }
     
-    let patientObjects;
-    try {
-      patientObjects = osdkClient('A');
-    } catch (error) {
-      logger.error('Failed to execute patient profile search via OSDK', {
-        error: error.message,
-        correlationId: req.correlationId,
-        user: req.user.sub
-      });
-      return res.status(500).json({
-        error: {
-          code: 'INTERNAL_ERROR',
-          message: 'Internal server error',
+    // Use REST API fallback if OSDK failed
+    if (useRestApiFallback) {
+      try {
+        const restResult = await searchPatientProfileViaREST(value, uniqueCandidates, pageSize, req.correlationId);
+        
+        return res.json({
+          success: true,
+          data: {
+            ontologyId: osdkOntologyRid,
+            requestUrl,
+            response: { objects: restResult.objects }
+          },
+          timestamp: new Date().toISOString(),
+          correlationId: req.correlationId
+        });
+      } catch (restError) {
+        logger.error('Both OSDK and REST API failed for patient profile search', {
+          restError: restError.message,
           correlationId: req.correlationId,
-          timestamp: new Date().toISOString()
-        }
-      });
+          user: req.user.sub
+        });
+        return res.status(500).json({
+          error: {
+            code: 'INTERNAL_ERROR',
+            message: 'Internal server error',
+            correlationId: req.correlationId,
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
     }
     let lastObjects = [];
 
