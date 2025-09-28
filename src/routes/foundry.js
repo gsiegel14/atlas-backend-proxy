@@ -2395,6 +2395,61 @@ router.post('/ontologies/:ontologyId/actions/:actionId/apply', validateTokenWith
   }
 });
 
+// Media content retrieval endpoint for media item RIDs
+router.get('/media/items/:mediaItemRid/content', validateTokenWithScopes(['read:patient']), async (req, res, next) => {
+  try {
+    const { mediaItemRid } = req.params;
+    
+    logger.info('Fetching media content from Foundry', {
+      mediaItemRid,
+      userId: req.user?.sub,
+      correlationId: req.correlationId
+    });
+
+    // Get Foundry token for service-to-service auth
+    const foundryService = new FoundryService({
+      host: osdkHost,
+      clientId: process.env.FOUNDRY_CLIENT_ID,
+      clientSecret: process.env.FOUNDRY_CLIENT_SECRET,
+      tokenUrl: process.env.FOUNDRY_OAUTH_TOKEN_URL,
+      ontologyRid: osdkOntologyRid
+    });
+
+    // Build the Foundry media content URL
+    const mediaUrl = `${osdkHost}/api/v2/media/${mediaItemRid}/content`;
+    
+    // Fetch the media content from Foundry
+    const response = await foundryService.apiCall('GET', mediaUrl);
+    
+    // Forward the content with appropriate headers
+    res.set({
+      'Content-Type': response.headers['content-type'] || 'application/octet-stream',
+      'Cache-Control': 'private, max-age=3600'
+    });
+    
+    res.send(response.data);
+
+  } catch (error) {
+    logger.error('Error fetching media content:', {
+      mediaItemRid: req.params.mediaItemRid,
+      error: error.message,
+      status: error.status,
+      userId: req.user?.sub,
+      correlationId: req.correlationId
+    });
+    
+    if (error.status === 404) {
+      return res.status(404).json({
+        error: 'Media item not found',
+        message: `The media item '${req.params.mediaItemRid}' was not found in Foundry`,
+        correlationId: req.correlationId
+      });
+    }
+    
+    next(error);
+  }
+});
+
 // Generic media upload endpoint for various media types
 router.post('/media/upload', validateTokenWithScopes(['execute:actions']), async (req, res, next) => {
   try {
