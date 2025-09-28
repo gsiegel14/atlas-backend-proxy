@@ -210,11 +210,26 @@ router.post('/upload-photo', validateTokenWithScopes(['execute:actions']), async
 
     // Upload to media set using Ontology API
     const mediaSetRid = 'ri.mio.main.media-set.6b57b513-6e54-4f04-b779-2a3a3f9753c8';
-    const ontologyRid = process.env.FOUNDRY_ONTOLOGY_RID || 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+    
+    // Convert ontology RID to API format if needed
+    let ontologyApiName = process.env.FOUNDRY_ONTOLOGY_RID || 'ri.ontology.main.ontology.151e0d3d-719c-464d-be5c-a6dc9f53d194';
+    if (ontologyApiName.startsWith('ri.ontology.main.ontology.')) {
+      ontologyApiName = ontologyApiName.replace('ri.ontology.main.ontology.', 'ontology-');
+    }
+    
     const objectType = process.env.FOUNDRY_MEDICATIONS_OBJECT_TYPE || 'MedicationsUpload';
     const property = 'photolabel'; // The media reference property name
 
-    const uploadUrl = `${process.env.FOUNDRY_HOST}/api/v2/ontologies/${ontologyRid}/objectTypes/${objectType}/media/${property}/upload?mediaItemPath=${encodeURIComponent(finalFilename)}&preview=true`;
+    logger.info('Medication photo upload configuration', {
+      mediaSetRid,
+      originalOntologyRid: process.env.FOUNDRY_ONTOLOGY_RID,
+      ontologyApiName,
+      objectType,
+      property,
+      correlationId: req.correlationId
+    });
+
+    const uploadUrl = `${process.env.FOUNDRY_HOST}/api/v2/ontologies/${ontologyApiName}/objectTypes/${objectType}/media/${property}/upload?mediaItemPath=${encodeURIComponent(finalFilename)}&preview=true`;
 
     const uploadResponse = await fetch(uploadUrl, {
       method: 'POST',

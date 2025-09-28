@@ -35,8 +35,9 @@ export class MediaUploadService {
       const fileBuffer = Buffer.from(base64Data, 'base64');
       
       // Configure for audio uploads
-      const objectType = 'AtlasIntraencounter';
-      const property = 'audiofile';
+      // Note: AtlasIntraencounter doesn't exist, using generic media upload
+      const objectType = 'MediaUpload';
+      const property = 'mediaFile';
       const mediaItemPath = this.createAudioPath(filename);
 
       return await this.uploadToFoundryMediaEndpoint(
@@ -133,16 +134,17 @@ export class MediaUploadService {
 
   /**
    * Core method to upload binary data to Foundry media endpoint
-   * Uses direct REST API calls to Foundry ontology media endpoints
+   * Uses direct media set API since object types are not configured correctly
    * @private
    */
   async uploadToFoundryMediaEndpoint(fileBuffer, objectType, property, mediaItemPath, contentType, userId) {
     // Get authentication token via direct REST API
     const token = await this.getFoundryToken();
     
-    // Build the Foundry media content upload URL
-    // POST /api/v2/ontologies/{ontology}/objectTypes/{objectType}/media/{property}/upload
-    const uploadUrl = `${this.foundryHost}/api/v2/ontologies/${this.ontologyApiName}/objectTypes/${objectType}/media/${property}/upload?mediaItemPath=${encodeURIComponent(mediaItemPath)}&preview=true`;
+    // Use direct media set API instead of ontology endpoint
+    // The media set RID you provided: ri.mio.main.media-set.774ed489-e6ba-4f75-abd3-784080d7cfb3
+    const mediaSetRid = 'ri.mio.main.media-set.774ed489-e6ba-4f75-abd3-784080d7cfb3';
+    const uploadUrl = `${this.foundryHost}/api/v2/mediasets/${mediaSetRid}/items?mediaItemPath=${encodeURIComponent(mediaItemPath)}&preview=true`;
     
     logger.info('MediaUploadService: Uploading to Foundry ontology endpoint', {
       uploadUrl,
