@@ -146,11 +146,9 @@ export class MediaUploadService {
     const mediaSetRid = 'ri.mio.main.media-set.774ed489-e6ba-4f75-abd3-784080d7cfb3';
     const uploadUrl = `${this.foundryHost}/api/v2/mediasets/${mediaSetRid}/items?mediaItemPath=${encodeURIComponent(mediaItemPath)}&preview=true`;
     
-    logger.info('MediaUploadService: Uploading to Foundry ontology endpoint', {
+    logger.info('MediaUploadService: Uploading to Foundry media set', {
       uploadUrl,
-      ontologyApiName: this.ontologyApiName,
-      objectType,
-      property,
+      mediaSetRid,
       mediaItemPath,
       fileSize: fileBuffer.length,
       contentType,
@@ -170,27 +168,23 @@ export class MediaUploadService {
     // Handle response
     if (!uploadResponse.ok) {
       const errorText = await uploadResponse.text();
-      logger.error('MediaUploadService: Foundry ontology upload failed', {
+      logger.error('MediaUploadService: Foundry media set upload failed', {
         status: uploadResponse.status,
         error: errorText,
         uploadUrl,
-        ontologyApiName: this.ontologyApiName,
-        objectType,
-        property,
+        mediaSetRid,
         userId
       });
-      throw new Error(`Foundry ontology media upload failed: ${uploadResponse.status} - ${errorText}`);
+      throw new Error(`Foundry media set upload failed: ${uploadResponse.status} - ${errorText}`);
     }
 
     const result = await uploadResponse.json();
     
-    logger.info('MediaUploadService: Foundry ontology upload successful', {
-      ontologyApiName: this.ontologyApiName,
-      objectType,
-      property,
+    logger.info('MediaUploadService: Foundry media set upload successful', {
+      mediaSetRid,
       mediaItemPath,
       userId,
-      hasReference: !!result.reference
+      result
     });
 
     return result;
