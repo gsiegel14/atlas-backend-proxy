@@ -72,21 +72,41 @@ if (bypassInitialization) {
 } else {
     const tokenProvider = createTokenProvider();
 
+    // Convert ontology RID to API name format if needed
+    let ontologyApiName = ontologyRid;
+    if (ontologyApiName.startsWith('ri.ontology.main.ontology.')) {
+        // Extract the UUID part and format as API name
+        const uuid = ontologyApiName.replace('ri.ontology.main.ontology.', '');
+        ontologyApiName = `ontology-${uuid}`;
+        console.log('Converted ontology RID to API name:', {
+            originalRid: ontologyRid,
+            apiName: ontologyApiName
+        });
+    }
+
     // createClient returns a function that can be invoked with an object type export from the SDK
     try {
-        console.log('Creating OSDK client with:', { host, ontologyRid: ontologyRid.substring(0, 20) + '...' });
-        client = createOSDKClient(host, ontologyRid, tokenProvider);
+        console.log('Creating OSDK client with:', { host, ontologyApiName: ontologyApiName.substring(0, 30) + '...' });
+        client = createOSDKClient(host, ontologyApiName, tokenProvider);
         console.log('OSDK client created successfully');
     } catch (error) {
         console.error('Failed to create OSDK client:', {
             error: error.message,
             host,
-            ontologyRid,
-            ontologyRidLength: ontologyRid.length,
-            ontologyRidType: typeof ontologyRid
+            originalRid: ontologyRid,
+            ontologyApiName,
+            ontologyApiNameLength: ontologyApiName.length,
+            ontologyApiNameType: typeof ontologyApiName
         });
         throw error;
     }
 }
 
-export { client, host as osdkHost, ontologyRid as osdkOntologyRid };
+// Export the converted API name for use in other services
+let exportedOntologyRid = ontologyRid;
+if (!bypassInitialization && ontologyRid.startsWith('ri.ontology.main.ontology.')) {
+    const uuid = ontologyRid.replace('ri.ontology.main.ontology.', '');
+    exportedOntologyRid = `ontology-${uuid}`;
+}
+
+export { client, host as osdkHost, exportedOntologyRid as osdkOntologyRid };
