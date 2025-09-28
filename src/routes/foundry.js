@@ -1,4 +1,5 @@
 import express from 'express';
+import fetch from 'node-fetch';
 import { validateTokenWithScopes } from '../middleware/auth0.js';
 import { FoundryService } from '../services/foundryService.js';
 import { osdkHost, osdkOntologyRid } from '../osdk/client.js';
@@ -2342,16 +2343,46 @@ router.post('/media/upload', validateTokenWithScopes(['execute:actions']), async
       ontologyRid: osdkOntologyRid
     });
 
-    // Try to create media using the create-media action
-    const parameters = {
-      filename,
-      content_type: contentType || 'application/octet-stream',
-      data_base64: data,
-      media_type: mediaType,
-      user_id: req.user?.sub
-    };
-
-    const result = await foundryService.applyOntologyAction('create-media', parameters);
+    // Upload directly to media set instead of using ontology actions
+    const mediaSetRid = 'ri.mio.main.media-set.774ed489-e6ba-4f75-abd3-784080d7cfb3';
+    
+    // Convert base64 data to buffer
+    const fileBuffer = Buffer.from(data, 'base64');
+    
+    // Create media item path based on media type
+    const sanitizedFilename = filename.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const mediaItemPath = mediaType === 'audio' 
+      ? `encounters/audio/${sanitizedFilename}`
+      : `medications/${sanitizedFilename}`;
+    
+    // Get Foundry token
+    const token = await foundryService.getToken();
+    
+    // Upload to media set using Foundry API
+    const uploadUrl = `${process.env.FOUNDRY_HOST}/api/v2/mediasets/${mediaSetRid}/items?mediaItemPath=${encodeURIComponent(mediaItemPath)}&preview=true`;
+    
+    const uploadResponse = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/octet-stream'
+      },
+      body: fileBuffer
+    });
+    
+    if (!uploadResponse.ok) {
+      const errorText = await uploadResponse.text();
+      logger.error('Failed to upload to media set', {
+        status: uploadResponse.status,
+        error: errorText,
+        mediaSetRid,
+        mediaItemPath,
+        userId: req.user?.sub
+      });
+      throw new Error(`Media set upload failed: ${uploadResponse.status} - ${errorText}`);
+    }
+    
+    const result = await uploadResponse.json();
     
     logger.info('Media upload successful', {
       userId: req.user?.sub,
