@@ -37,38 +37,45 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
           correlationId: req.correlationId
         });
       } else {
-        const patientObjects = osdkClient('A');
-
-        for (const identifier of identifierCandidates) {
         try {
-          const page = await patientObjects.where({ user_id: { $eq: identifier } }).fetchPage({ $pageSize: 1 });
-          if (page.data.length > 0) {
-            const properties = JSON.parse(JSON.stringify(page.data[0]));
-            effectivePatientId = properties.patientId
-              ?? properties.user_id
-              ?? properties.userId
-              ?? properties.$primaryKey
-              ?? properties.$rid
-              ?? null;
+          const patientObjects = osdkClient('A');
 
-            logger.info('Resolved patientId via OSDK search', {
-              identifierType: 'user_id',
-              identifier,
-              resolvedPatientId: effectivePatientId,
-              correlationId: req.correlationId
-            });
-            break;
+          for (const identifier of identifierCandidates) {
+            try {
+              const page = await patientObjects.where({ user_id: { $eq: identifier } }).fetchPage({ $pageSize: 1 });
+              if (page.data.length > 0) {
+                const properties = JSON.parse(JSON.stringify(page.data[0]));
+                effectivePatientId = properties.patientId
+                  ?? properties.user_id
+                  ?? properties.userId
+                  ?? properties.$primaryKey
+                  ?? properties.$rid
+                  ?? null;
+
+                logger.info('Resolved patientId via OSDK search', {
+                  identifierType: 'user_id',
+                  identifier,
+                  resolvedPatientId: effectivePatientId,
+                  correlationId: req.correlationId
+                });
+                break;
+              }
+            } catch (error) {
+              logger.warn('OSDK patientId resolution attempt failed', {
+                identifierType: 'user_id',
+                identifier,
+                error: error.message,
+                correlationId: req.correlationId
+              });
+            }
           }
         } catch (error) {
-          logger.warn('OSDK patientId resolution attempt failed', {
-            identifierType: 'user_id',
-            identifier,
+          logger.warn('OSDK client initialization failed, skipping patient ID resolution', {
             error: error.message,
             correlationId: req.correlationId
           });
         }
       }
-    }
     }
 
     if (!effectivePatientId) {
@@ -179,7 +186,24 @@ router.post('/profile/search', validateTokenWithScopes(['read:patient']), async 
       });
     }
     
-    const patientObjects = osdkClient('A');
+    let patientObjects;
+    try {
+      patientObjects = osdkClient('A');
+    } catch (error) {
+      logger.error('Failed to execute patient profile search via OSDK', {
+        error: error.message,
+        correlationId: req.correlationId,
+        user: req.user.sub
+      });
+      return res.status(500).json({
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Internal server error',
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
     let lastObjects = [];
 
     logger.info('Patient profile search request', {
