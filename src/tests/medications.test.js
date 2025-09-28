@@ -36,7 +36,7 @@ describe('Medications uploads API', () => {
           },
           source: {
             ontologyId: 'ontology-test-rid',
-            objectType: 'MedicationsUpload'
+            objectType: 'MedictionsPipeline'
           }
         }
       ];

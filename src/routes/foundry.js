@@ -2315,6 +2315,86 @@ router.post('/actions/create-media/apply', validateTokenWithScopes(['execute:act
   }
 });
 
+// Generic ontology actions endpoint - matches iOS app expectations
+router.post('/ontologies/:ontologyId/actions/:actionId/apply', validateTokenWithScopes(['execute:actions']), async (req, res, next) => {
+  try {
+    const { ontologyId, actionId } = req.params;
+    const { parameters = {}, options = {} } = req.body;
+    
+    logger.info('Applying ontology action via generic endpoint', {
+      ontologyId,
+      actionId,
+      userId: req.user?.sub,
+      parametersCount: Object.keys(parameters).length,
+      correlationId: req.correlationId
+    });
+
+    // Special handling for known actions
+    if (actionId === 'create-atlas-intraencounter-production' || actionId === 'createAtlasIntraencounterProduction') {
+      // Use the dedicated MediaUploadService for intraencounter actions
+      const mediaUploadService = new MediaUploadService({
+        foundryHost: process.env.FOUNDRY_HOST,
+        clientId: process.env.FOUNDRY_CLIENT_ID,
+        clientSecret: process.env.FOUNDRY_CLIENT_SECRET,
+        tokenUrl: process.env.FOUNDRY_OAUTH_TOKEN_URL,
+        ontologyApiName: foundryService.getApiOntologyRid()
+      });
+
+      const result = await mediaUploadService.createIntraencounterProduction({
+        timestamp: parameters.timestamp,
+        user_id: parameters.user_id || req.user?.sub,
+        audiofile: parameters.audiofile,
+        transcript: parameters.transcript,
+        location: parameters.location,
+        provider_name: parameters.provider_name,
+        speciality: parameters.speciality,
+        hospital: parameters.hospital
+      });
+
+      return res.json({
+        success: true,
+        actionId,
+        data: result,
+        timestamp: new Date().toISOString(),
+        correlationId: req.correlationId
+      });
+    }
+
+    // For other actions, use the generic foundry service
+    const result = await foundryService.applyOntologyAction(actionId, parameters, options);
+
+    res.json({
+      success: true,
+      actionId,
+      data: result,
+      timestamp: new Date().toISOString(),
+      correlationId: req.correlationId
+    });
+
+  } catch (error) {
+    logger.error('Failed to apply ontology action:', {
+      ontologyId: req.params.ontologyId,
+      actionId: req.params.actionId,
+      error: error.message,
+      status: error.status,
+      foundryError: error.foundryError,
+      user: req.user?.sub,
+      correlationId: req.correlationId
+    });
+    
+    if (error.status === 404) {
+      return res.status(404).json({
+        error: 'Ontology action not found',
+        message: `The action '${req.params.actionId}' may not be configured in the Foundry ontology`,
+        foundryError: error.foundryError,
+        correlationId: req.correlationId
+      });
+    }
+    
+    next(error);
+  }
+});
+
 // Generic media upload endpoint for various media types
 router.post('/media/upload', validateTokenWithScopes(['execute:actions']), async (req, res, next) => {
   try {

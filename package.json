@@ -15,9 +15,9 @@
     "lint:fix": "eslint src/ --fix"
   },
   "dependencies": {
-    "@osdk/client": "^2.4.1",
-    "@osdk/foundry": "latest",
-    "@osdk/oauth": "^1.0.0",
+    "@osdk/client": "^2.4.2",
+    "@osdk/foundry": "^2.32.0",
+    "@osdk/oauth": "^1.4.0",
     "axios": "^1.6.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",

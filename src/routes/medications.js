@@ -337,7 +337,7 @@ router.post('/upload-photo', validateTokenWithScopes(['execute:actions']), async
 // Create medication upload record with media reference
 router.post('/create-with-photo', validateTokenWithScopes(['execute:actions']), async (req, res, next) => {
   try {
-    const { mediaReference, userId, timestamp } = req.body || {};
+    const { mediaReference, userId: userIdOverride, timestamp } = req.body || {};
     
     if (!mediaReference || !mediaReference.mediaItemRid) {
       return res.status(400).json({
@@ -352,7 +352,37 @@ router.post('/create-with-photo', validateTokenWithScopes(['execute:actions']), 
 
     logger.info('Creating medication upload record with photo reference', {
       mediaReference,
-      userId,
+      correlationId: req.correlationId
+    });
+
+    const identifiers = resolveUserIdentifiers(req);
+    const resolvedUser = (typeof userIdOverride === 'string' && userIdOverride.trim().length > 0)
+      ? userIdOverride.trim()
+      : identifiers[0];
+
+    if (!resolvedUser) {
+      return res.status(400).json({
+        error: {
+          code: 'MISSING_IDENTITY',
+          message: 'Unable to resolve Auth0 username for this request',
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    if (userIdOverride && userIdOverride.trim() !== resolvedUser) {
+      logger.warn('User ID override does not match resolved identifier; using resolved identifier', {
+        overrideUserId: userIdOverride,
+        resolvedUserId: resolvedUser,
+        identifiers,
+        correlationId: req.correlationId
+      });
+    }
+
+    logger.info('Resolved user for create-with-photo action', {
+      resolvedUser,
+      identifierCount: identifiers.length,
       correlationId: req.correlationId
     });
 
@@ -376,10 +406,10 @@ router.post('/create-with-photo', validateTokenWithScopes(['execute:actions']), 
 
     // Execute the create action using the exact API format from documentation
     const actionUrl = `${process.env.FOUNDRY_HOST}/api/v2/ontologies/ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194/actions/create-medications-upload/apply`;
-    
+
     const actionPayload = {
       parameters: {
-        user_id: userId || req.user?.sub,
+        user_id: resolvedUser,
         timestamp: timestamp || new Date().toISOString(),
         photolabel: mediaReference.mediaItemRid
       },

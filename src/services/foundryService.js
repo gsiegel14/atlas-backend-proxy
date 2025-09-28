@@ -17,7 +17,7 @@ export class FoundryService {
       || 'create-medications-upload';
     this.medicationsUploadObjectType = config.medicationsUploadObjectType
       || process.env.FOUNDRY_MEDICATIONS_OBJECT_TYPE
-      || 'MedicationsUpload';
+      || 'MedictionsPipeline';
     this.chatHistoryActionId = config.chatHistoryActionId
       || process.env.FOUNDRY_CHAT_HISTORY_ACTION_ID
       || 'create-ai-chat-history-production';

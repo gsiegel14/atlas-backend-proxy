@@ -59,6 +59,8 @@ services:
         sync: false
       - key: WEBHOOK_SERVICE_TOKEN
         sync: false
+      - key: FOUNDRY_TOKEN
+        sync: false
     disk:
       name: atlas-backend-proxy-disk
       mountPath: /opt/render/project/logs
