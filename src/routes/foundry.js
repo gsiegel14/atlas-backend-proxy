@@ -1,7 +1,7 @@
 import express from 'express';
-import fetch from 'node-fetch';
 import { validateTokenWithScopes } from '../middleware/auth0.js';
 import { FoundryService } from '../services/foundryService.js';
+import { MediaUploadService } from '../services/mediaUploadService.js';
 import { osdkHost, osdkOntologyRid } from '../osdk/client.js';
 import { logger } from '../utils/logger.js';
 import { EncountersService, DEFAULT_ENCOUNTERS_CACHE_TTL_MS } from '../services/encountersService.js';
@@ -2335,6 +2335,7 @@ router.post('/media/upload', validateTokenWithScopes(['execute:actions']), async
       dataSize: data.length
     });
 
+    // Create Foundry service for token management
     const foundryService = new FoundryService({
       host: osdkHost,
       clientId: process.env.FOUNDRY_CLIENT_ID,
@@ -2343,65 +2344,38 @@ router.post('/media/upload', validateTokenWithScopes(['execute:actions']), async
       ontologyRid: osdkOntologyRid
     });
 
-    // Use proper Foundry media content upload endpoint
-    // POST /api/v2/ontologies/{ontology}/objectTypes/{objectType}/media/{property}/upload
-    
-    // Convert base64 data to buffer
-    const fileBuffer = Buffer.from(data, 'base64');
-    
-    // Get Foundry token
-    const token = await foundryService.getToken();
-    
-    // Configure object type and property based on media type
-    let objectType, property;
-    if (mediaType === 'audio') {
-      objectType = 'AtlasIntraencounter'; // or whatever your audio object type is
-      property = 'audiofile';
-    } else {
-      objectType = 'MedicationsUpload'; // for medication images
-      property = 'photolabel';
-    }
-    
-    // Create media item path
-    const sanitizedFilename = filename.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const mediaItemPath = mediaType === 'audio' 
-      ? `encounters/audio/${sanitizedFilename}`
-      : `medications/${sanitizedFilename}`;
-    
-    // Use the proper media content upload endpoint
-    const uploadUrl = `${process.env.FOUNDRY_HOST}/api/v2/ontologies/${osdkOntologyRid}/objectTypes/${objectType}/media/${property}/upload?mediaItemPath=${encodeURIComponent(mediaItemPath)}&preview=true`;
-    
-    logger.info('Uploading to Foundry media endpoint', {
-      uploadUrl,
-      objectType,
-      property,
-      mediaItemPath,
-      fileSize: fileBuffer.length
+    // Create dedicated media upload service
+    const mediaUploadService = new MediaUploadService({
+      foundryHost: process.env.FOUNDRY_HOST,
+      ontologyRid: osdkOntologyRid,
+      getToken: () => foundryService.getToken()
     });
-    
-    const uploadResponse = await fetch(uploadUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/octet-stream'
-      },
-      body: fileBuffer
-    });
-    
-    if (!uploadResponse.ok) {
-      const errorText = await uploadResponse.text();
-      logger.error('Failed to upload to Foundry media endpoint', {
-        status: uploadResponse.status,
-        error: errorText,
-        uploadUrl,
-        objectType,
-        property,
-        userId: req.user?.sub
+
+    // Validate base64 data
+    if (!MediaUploadService.isValidBase64(data)) {
+      return res.status(400).json({
+        error: 'Invalid base64 data',
+        message: 'The provided data is not valid base64 encoded content'
       });
-      throw new Error(`Foundry media upload failed: ${uploadResponse.status} - ${errorText}`);
     }
-    
-    const result = await uploadResponse.json();
+
+    // Upload using dedicated service based on media type
+    let result;
+    if (mediaType === 'audio') {
+      result = await mediaUploadService.uploadAudioFile(
+        data,
+        filename,
+        contentType,
+        req.user?.sub
+      );
+    } else {
+      result = await mediaUploadService.uploadImageFile(
+        data,
+        filename,
+        contentType,
+        req.user?.sub
+      );
+    }
     
     logger.info('Media upload successful', {
       userId: req.user?.sub,
