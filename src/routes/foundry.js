@@ -2335,20 +2335,13 @@ router.post('/media/upload', validateTokenWithScopes(['execute:actions']), async
       dataSize: data.length
     });
 
-    // Create Foundry service for token management
-    const foundryService = new FoundryService({
-      host: osdkHost,
+    // Create dedicated media upload service with direct REST API configuration
+    const mediaUploadService = new MediaUploadService({
+      foundryHost: process.env.FOUNDRY_HOST,
       clientId: process.env.FOUNDRY_CLIENT_ID,
       clientSecret: process.env.FOUNDRY_CLIENT_SECRET,
       tokenUrl: process.env.FOUNDRY_OAUTH_TOKEN_URL,
-      ontologyRid: osdkOntologyRid
-    });
-
-    // Create dedicated media upload service
-    const mediaUploadService = new MediaUploadService({
-      foundryHost: process.env.FOUNDRY_HOST,
-      ontologyRid: osdkOntologyRid,
-      getToken: () => foundryService.getToken()
+      ontologyApiName: 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194'
     });
 
     // Validate base64 data

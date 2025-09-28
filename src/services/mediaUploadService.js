@@ -101,34 +101,52 @@ export class MediaUploadService {
   }
 
   /**
+   * Get Foundry OAuth token using direct REST API call
+   * @private
+   */
+  async getFoundryToken() {
+    const tokenResponse = await fetch(this.tokenUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: new URLSearchParams({
+        'grant_type': 'client_credentials',
+        'client_id': this.clientId,
+        'client_secret': this.clientSecret,
+        'scope': 'api:ontologies-read api:ontologies-write'
+      })
+    });
+
+    if (!tokenResponse.ok) {
+      const errorText = await tokenResponse.text();
+      logger.error('MediaUploadService: Failed to get Foundry token', {
+        status: tokenResponse.status,
+        error: errorText
+      });
+      throw new Error(`Failed to get Foundry token: ${tokenResponse.status} - ${errorText}`);
+    }
+
+    const tokenData = await tokenResponse.json();
+    return tokenData.access_token;
+  }
+
+  /**
    * Core method to upload binary data to Foundry media endpoint
-   * Uses ontology media content upload endpoint with correct API name format
+   * Uses direct REST API calls to Foundry ontology media endpoints
    * @private
    */
   async uploadToFoundryMediaEndpoint(fileBuffer, objectType, property, mediaItemPath, contentType, userId) {
-    // Get authentication token
-    const token = await this.getToken();
+    // Get authentication token via direct REST API
+    const token = await this.getFoundryToken();
     
-    // Convert ontology RID to API name format if needed
-    let ontologyApiName = this.ontologyRid;
-    if (ontologyApiName.startsWith('ri.ontology.main.ontology.')) {
-      // Extract the UUID part and format as API name
-      const uuid = ontologyApiName.replace('ri.ontology.main.ontology.', '');
-      ontologyApiName = `ontology-${uuid}`;
-    }
-    
-    logger.info('MediaUploadService: Using ontology API name', {
-      originalRid: this.ontologyRid,
-      ontologyApiName
-    });
-    
-    // Build the Foundry media content upload URL with correct ontology API name
+    // Build the Foundry media content upload URL
     // POST /api/v2/ontologies/{ontology}/objectTypes/{objectType}/media/{property}/upload
-    const uploadUrl = `${this.foundryHost}/api/v2/ontologies/${ontologyApiName}/objectTypes/${objectType}/media/${property}/upload?mediaItemPath=${encodeURIComponent(mediaItemPath)}&preview=true`;
+    const uploadUrl = `${this.foundryHost}/api/v2/ontologies/${this.ontologyApiName}/objectTypes/${objectType}/media/${property}/upload?mediaItemPath=${encodeURIComponent(mediaItemPath)}&preview=true`;
     
     logger.info('MediaUploadService: Uploading to Foundry ontology endpoint', {
       uploadUrl,
-      ontologyApiName,
+      ontologyApiName: this.ontologyApiName,
       objectType,
       property,
       mediaItemPath,
@@ -154,7 +172,7 @@ export class MediaUploadService {
         status: uploadResponse.status,
         error: errorText,
         uploadUrl,
-        ontologyApiName,
+        ontologyApiName: this.ontologyApiName,
         objectType,
         property,
         userId
@@ -165,7 +183,7 @@ export class MediaUploadService {
     const result = await uploadResponse.json();
     
     logger.info('MediaUploadService: Foundry ontology upload successful', {
-      ontologyApiName,
+      ontologyApiName: this.ontologyApiName,
       objectType,
       property,
       mediaItemPath,
