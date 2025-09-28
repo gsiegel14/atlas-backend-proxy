@@ -32,7 +32,7 @@ services:
       - key: CORS_ORIGINS
         value: "https://atlas.ai,https://app.atlas.ai,http://localhost:3000"
       - key: FOUNDRY_ONTOLOGY_RID
-        value: ri.ontology.main.ontology.151e0d3d-719c-464d-be5c-a6dc9f53d194
+        value: ri.ontology.main.ontology.8208fd4c-b7fb-45ef-bf49-99a402136e58
       - key: FOUNDRY_ONTOLOGY_API_NAME
         value: ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194
       - key: FOUNDRY_OBJECT_TYPE_API_NAME

@@ -142,8 +142,8 @@ export class MediaUploadService {
     const token = await this.getFoundryToken();
     
     // Use direct media set API instead of ontology endpoint
-    // The media set RID you provided: ri.mio.main.media-set.774ed489-e6ba-4f75-abd3-784080d7cfb3
-    const mediaSetRid = 'ri.mio.main.media-set.774ed489-e6ba-4f75-abd3-784080d7cfb3';
+    // Use the correct media set RID for medication photos
+    const mediaSetRid = 'ri.mio.main.media-set.6b57b513-6e54-4f04-b779-2a3a3f9753c8';
     const uploadUrl = `${this.foundryHost}/api/v2/mediasets/${mediaSetRid}/items?mediaItemPath=${encodeURIComponent(mediaItemPath)}&preview=true`;
     
     logger.info('MediaUploadService: Uploading to Foundry media set', {

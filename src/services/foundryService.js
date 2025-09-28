@@ -77,7 +77,7 @@ export class FoundryService {
 
   /**
    * Transform ontology RID from OSDK format to API format
-   * OSDK format: ri.ontology.main.ontology.151e0d3d-719c-464d-be5c-a6dc9f53d194
+   * OSDK format: ri.ontology.main.ontology.8208fd4c-b7fb-45ef-bf49-99a402136e58
    * API format: ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194
    */
   getApiOntologyRid(osdkRid = this.ontologyRid) {
