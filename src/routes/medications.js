@@ -215,7 +215,14 @@ router.post('/upload-photo', validateTokenWithScopes(['execute:actions']), async
     });
 
     // Get Foundry OAuth token
-    const tokenResponse = await fetch(`${process.env.FOUNDRY_HOST}/multipass/api/oauth2/token`, {
+    const tokenUrl = `${process.env.FOUNDRY_HOST}/multipass/api/oauth2/token`;
+    logger.info('Fetching Foundry OAuth token', {
+      url: tokenUrl,
+      scopes: 'api:ontologies-read api:ontologies-write',
+      correlationId: req.correlationId
+    });
+
+    const tokenResponse = await fetch(tokenUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -225,10 +232,20 @@ router.post('/upload-photo', validateTokenWithScopes(['execute:actions']), async
     });
 
     if (!tokenResponse.ok) {
-      throw new Error(`Failed to get Foundry token: ${tokenResponse.status}`);
+      const errorText = await tokenResponse.text();
+      logger.error('Failed to get Foundry token', {
+        status: tokenResponse.status,
+        error: errorText,
+        correlationId: req.correlationId
+      });
+      throw new Error(`Failed to get Foundry token: ${tokenResponse.status} - ${errorText}`);
     }
 
     const { access_token } = await tokenResponse.json();
+    logger.info('Successfully obtained Foundry OAuth token', {
+      tokenLength: access_token.length,
+      correlationId: req.correlationId
+    });
 
     // Upload to media set using Ontology API
     const mediaSetRid = 'ri.mio.main.media-set.6b57b513-6e54-4f04-b779-2a3a3f9753c8';
@@ -253,6 +270,22 @@ router.post('/upload-photo', validateTokenWithScopes(['execute:actions']), async
 
     const uploadUrl = `${process.env.FOUNDRY_HOST}/api/v2/ontologies/${ontologyApiName}/objectTypes/${objectType}/media/${property}/upload?mediaItemPath=${encodeURIComponent(finalFilename)}&preview=true`;
 
+    logger.info('Making Foundry API call for medication photo upload', {
+      url: uploadUrl,
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${access_token.substring(0, 20)}...`,
+        'Content-Type': 'application/octet-stream'
+      },
+      bodySize: photoBuffer.length,
+      mediaSetRid,
+      ontologyApiName,
+      objectType,
+      property,
+      filename: finalFilename,
+      correlationId: req.correlationId
+    });
+
     const uploadResponse = await fetch(uploadUrl, {
       method: 'POST',
       headers: {
@@ -262,11 +295,20 @@ router.post('/upload-photo', validateTokenWithScopes(['execute:actions']), async
       body: photoBuffer
     });
 
+    logger.info('Foundry API response received', {
+      status: uploadResponse.status,
+      statusText: uploadResponse.statusText,
+      headers: Object.fromEntries(uploadResponse.headers.entries()),
+      correlationId: req.correlationId
+    });
+
     if (!uploadResponse.ok) {
       const errorText = await uploadResponse.text();
       logger.error('Failed to upload medication photo to media set', {
         status: uploadResponse.status,
+        statusText: uploadResponse.statusText,
         error: errorText,
+        url: uploadUrl,
         userId: primaryUser,
         correlationId: req.correlationId
       });
@@ -274,6 +316,13 @@ router.post('/upload-photo', validateTokenWithScopes(['execute:actions']), async
     }
 
     const uploadResult = await uploadResponse.json();
+    
+    logger.info('Foundry API upload successful', {
+      status: uploadResponse.status,
+      responseBody: uploadResult,
+      userId: primaryUser,
+      correlationId: req.correlationId
+    });
     
     logger.info('Successfully uploaded medication photo to media set', {
       userId: primaryUser,
