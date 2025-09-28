@@ -30,15 +30,14 @@ async function searchPatientProfileViaREST(value, fieldCandidates, limit, correl
     
     const token = await tokenProvider();
     const pageSize = Math.max(Math.min(parseInt(limit, 10) || 1, 100), 1);
-    
-    // Convert ontology RID format for REST API
-    let restOntologyRid = osdkOntologyRid;
-    if (osdkOntologyRid.startsWith('ri.ontology.main.ontology.')) {
-      const uuid = osdkOntologyRid.replace('ri.ontology.main.ontology.', '');
-      restOntologyRid = `ontology-${uuid}`;
-    }
-    
-    const searchUrl = `${osdkHost}/api/v2/ontologies/${restOntologyRid}/objects/A/search`;
+
+    // Prefer explicit API ontology name if configured
+    const restOntologyRid = typeof foundryService.getApiOntologyRid === 'function'
+      ? foundryService.getApiOntologyRid()
+      : (process.env.FOUNDRY_ONTOLOGY_API_NAME || osdkOntologyRid);
+
+    const objectTypeApiName = process.env.FOUNDRY_OBJECT_TYPE_API_NAME || 'A';
+    const searchUrl = `${osdkHost}/api/v2/ontologies/${restOntologyRid}/objects/${objectTypeApiName}/search`;
     
     // Try each field candidate
     for (const field of fieldCandidates) {
@@ -100,7 +99,9 @@ async function searchPatientProfileViaREST(value, fieldCandidates, limit, correl
         return {
           success: true,
           objects,
-          source: 'REST_API'
+          source: 'REST_API',
+          requestUrl: searchUrl,
+          ontologyId: restOntologyRid
         };
       }
     }
@@ -114,7 +115,9 @@ async function searchPatientProfileViaREST(value, fieldCandidates, limit, correl
     return {
       success: true,
       objects: [],
-      source: 'REST_API'
+      source: 'REST_API',
+      requestUrl: searchUrl,
+      ontologyId: restOntologyRid
     };
     
   } catch (error) {
