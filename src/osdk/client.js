@@ -7,7 +7,8 @@ dotenv.config();
 const DEFAULT_HOST = 'https://atlasengine.palantirfoundry.com';
 const host = process.env.FOUNDRY_HOST ?? DEFAULT_HOST;
 const bypassInitialization = process.env.NODE_ENV === 'test'
-    || (process.env.OSDK_CLIENT_DISABLE ?? '').toLowerCase() === 'true';
+    || (process.env.OSDK_CLIENT_DISABLE ?? '').toLowerCase() === 'true'
+    || true; // Always bypass OSDK client - using direct REST API calls instead
 
 // Ontology RID must be provided unless we are bypassing for tests
 const ontologyRid = process.env.FOUNDRY_ONTOLOGY_RID
