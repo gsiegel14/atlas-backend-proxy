@@ -12,6 +12,8 @@ export class MediaUploadService {
     this.clientSecret = config.clientSecret;
     this.tokenUrl = config.tokenUrl;
     this.ontologyApiName = config.ontologyApiName || 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+    this.audioMediaSetRid = config.audioMediaSetRid || process.env.FOUNDRY_AUDIO_MEDIA_SET_RID || 'ri.mio.main.media-set.774ed489-e6ba-4f75-abd3-784080d7cfb3';
+    this.medicationsMediaSetRid = config.medicationsMediaSetRid || process.env.FOUNDRY_MEDICATIONS_MEDIA_SET_RID || 'ri.mio.main.media-set.6b57b513-6e54-4f04-b779-2a3a3f9753c8';
   }
 
   /**
@@ -157,7 +159,9 @@ export class MediaUploadService {
       ontologyApiName: this.ontologyApiName,
       userId: params.user_id,
       hasAudiofile: !!params.audiofile,
-      hasTranscript: !!params.transcript
+      hasTranscript: !!params.transcript,
+      audiofileFormat: typeof params.audiofile,
+      audiofileKeys: params.audiofile ? Object.keys(params.audiofile) : []
     });
 
     const requestBody = {
@@ -192,7 +196,8 @@ export class MediaUploadService {
         status: actionResponse.status,
         error: errorText,
         actionUrl,
-        userId: params.user_id
+        userId: params.user_id,
+        requestBody: JSON.stringify(requestBody, null, 2)
       });
       throw new Error(`Foundry action failed: ${actionResponse.status} - ${errorText}`);
     }
@@ -218,8 +223,11 @@ export class MediaUploadService {
     const token = await this.getFoundryToken();
     
     // Use direct media set API instead of ontology endpoint
-    // Use the correct media set RID for medication photos
-    const mediaSetRid = 'ri.mio.main.media-set.6b57b513-6e54-4f04-b779-2a3a3f9753c8';
+    // Choose the appropriate media set based on content type
+    const isAudioFile = contentType && contentType.startsWith('audio/');
+    const mediaSetRid = isAudioFile 
+      ? this.audioMediaSetRid 
+      : this.medicationsMediaSetRid; // Default for images/other files
     const uploadUrl = `${this.foundryHost}/api/v2/mediasets/${mediaSetRid}/items?mediaItemPath=${encodeURIComponent(mediaItemPath)}&preview=true`;
     
     logger.info('MediaUploadService: Uploading to Foundry media set', {
@@ -228,7 +236,8 @@ export class MediaUploadService {
       mediaItemPath,
       fileSize: fileBuffer.length,
       contentType,
-      userId
+      userId,
+      mediaSetType: isAudioFile ? 'audio' : 'image/other'
     });
 
     // Make the upload request
@@ -263,7 +272,16 @@ export class MediaUploadService {
       result
     });
 
-    return result;
+    // Ensure the result has the correct format for Foundry actions
+    // The action expects a media reference in the format: { $rid: "ri.mio.main.media-item.xxx" }
+    const mediaReference = {
+      $rid: result.mediaItemRid || result.$rid || result.rid
+    };
+
+    return {
+      ...result,
+      reference: mediaReference
+    };
   }
 
   /**

@@ -34,7 +34,7 @@ services:
       - key: FOUNDRY_ONTOLOGY_RID
         value: ri.ontology.main.ontology.8208fd4c-b7fb-45ef-bf49-99a402136e58
       - key: FOUNDRY_ONTOLOGY_API_NAME
-        value: ontology-8208fd4c-b7fb-45ef-bf49-99a402136e58
+        value: ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194
       - key: FOUNDRY_OBJECT_TYPE_API_NAME
         value: A
       - key: FOUNDRY_MEDICATIONS_ACTION_ID
@@ -51,6 +51,10 @@ services:
         value: create-healthkit-raw
       - key: FOUNDRY_FASTEN_FHIR_ACTION_ID
         value: create-fasten-fhir-data
+      - key: FOUNDRY_AUDIO_MEDIA_SET_RID
+        value: ri.mio.main.media-set.774ed489-e6ba-4f75-abd3-784080d7cfb3
+      - key: FOUNDRY_MEDICATIONS_MEDIA_SET_RID
+        value: ri.mio.main.media-set.6b57b513-6e54-4f04-b779-2a3a3f9753c8
       - key: SERVICE_SECRET
         sync: false
       - key: WEBHOOK_SERVICE_TOKEN

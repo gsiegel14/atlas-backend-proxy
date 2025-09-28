@@ -248,7 +248,7 @@ router.post('/upload-photo', validateTokenWithScopes(['execute:actions']), async
     });
 
     // Step 1: Upload to media set directly using Media Set API
-    const mediaSetRid = 'ri.mio.main.media-set.6b57b513-6e54-4f04-b779-2a3a3f9753c8';
+    const mediaSetRid = process.env.FOUNDRY_MEDICATIONS_MEDIA_SET_RID || 'ri.mio.main.media-set.6b57b513-6e54-4f04-b779-2a3a3f9753c8';
     
     const mediaUploadUrl = `${process.env.FOUNDRY_HOST}/api/v2/mediasets/${mediaSetRid}/items?mediaItemPath=${encodeURIComponent(finalFilename)}`;
 
