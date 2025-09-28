@@ -381,7 +381,7 @@ router.post('/create-with-photo', validateTokenWithScopes(['execute:actions']), 
       parameters: {
         user_id: userId || req.user?.sub,
         timestamp: timestamp || new Date().toISOString(),
-        photolabel: { $rid: mediaReference.mediaItemRid }
+        photolabel: mediaReference.mediaItemRid
       },
       options: {
         returnEdits: "ALL"
