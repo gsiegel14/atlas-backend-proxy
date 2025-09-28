@@ -18,43 +18,6 @@ const foundryService = new FoundryService({
   medicationsUploadObjectType: process.env.FOUNDRY_MEDICATIONS_OBJECT_TYPE
 });
 
-// Derive human-friendly profile fields from JWT claims/headers
-function deriveProfileFromClaims(req) {
-  try {
-    const emailClaim = typeof req.user?.email === 'string' ? req.user.email.trim() : undefined;
-    const preferred = typeof req.user?.preferred_username === 'string' ? req.user.preferred_username.trim() : undefined;
-    const nickname = typeof req.user?.nickname === 'string' ? req.user.nickname.trim() : undefined;
-    const name = typeof req.user?.name === 'string' ? req.user.name.trim() : undefined;
-    const givenName = typeof req.user?.given_name === 'string' ? req.user.given_name.trim() : undefined;
-    const familyName = typeof req.user?.family_name === 'string' ? req.user.family_name.trim() : undefined;
-    const headerUsername = typeof req.context?.username === 'string' ? req.context.username.trim() : undefined;
-
-    const resolvedEmail = emailClaim || (preferred?.includes('@') ? preferred : undefined) || (headerUsername?.includes('@') ? headerUsername : undefined) || undefined;
-    const displaySource = name || headerUsername || preferred || nickname || (resolvedEmail ? resolvedEmail.split('@')[0] : undefined);
-
-    let firstName = givenName;
-    let lastName = familyName;
-
-    if (!firstName || !lastName) {
-      if (displaySource && displaySource.includes(' ')) {
-        const parts = displaySource.split(/\s+/).filter(Boolean);
-        firstName = firstName || parts[0];
-        lastName = lastName || parts.slice(1).join(' ');
-      } else if (!firstName && displaySource) {
-        firstName = displaySource;
-      }
-    }
-
-    return {
-      firstName: firstName || undefined,
-      lastName: lastName || undefined,
-      email: resolvedEmail || emailClaim || undefined
-    };
-  } catch {
-    return { firstName: undefined, lastName: undefined, email: undefined };
-  }
-}
-
 // REST API fallback for patient profile search
 async function searchPatientProfileViaREST(value, fieldCandidates, limit, correlationId) {
   try {
@@ -358,26 +321,44 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
     
     // If neither OSDK nor REST API worked, use fallback
     if (!profileFound) {
-      // Create a fallback patient profile from claims when possible
-      const claims = deriveProfileFromClaims(req);
+      // Create a fallback patient profile populated from Auth0 token claims when available
       const userIdParts = effectivePatientId.split('|');
       const userIdentifier = userIdParts.length > 1 ? userIdParts[1] : effectivePatientId;
+      const claims = req.user || {};
+      const preferredName = claims.name || claims.preferred_username || req.context?.username || userIdentifier;
+      let firstName = claims.given_name;
+      let lastName = claims.family_name;
 
+      if (!firstName || !lastName) {
+        if (preferredName) {
+          const parts = String(preferredName).trim().split(/\s+/);
+          if (!firstName) firstName = parts[0] || 'Atlas';
+          if (!lastName) lastName = parts.slice(1).join(' ') || 'Patient';
+        } else {
+          firstName = firstName || 'Atlas';
+          lastName = lastName || 'Patient';
+        }
+      }
+
+      const email = claims.email || `${userIdentifier}@example.com`;
+      
       dashboardData = {
         ...dashboardData,
         rid: `patient-${userIdentifier}`,
         properties: {
-          firstName: claims.firstName || 'Atlas',
-          lastName: claims.lastName || 'Patient',
-          email: claims.email || req.user.email || `${userIdentifier}@example.com`,
+          firstName,
+          lastName,
+          email,
           user_id: effectivePatientId,
           patientId: effectivePatientId,
-          source: 'fallback-profile'
+          source: 'fallback-profile-claims'
         }
       };
       
-      logger.info('Using fallback patient profile (no data source available)', {
+      logger.info('Using fallback patient profile (claims-derived)', {
         patientId: effectivePatientId,
+        hasGivenName: !!claims.given_name,
+        hasFamilyName: !!claims.family_name,
         correlationId: req.correlationId
       });
     }
