@@ -356,12 +356,67 @@ router.post('/create-with-photo', validateTokenWithScopes(['execute:actions']), 
       correlationId: req.correlationId
     });
 
-    // Execute the create action with the media reference
-    const actionResult = await foundryService.executeMedicationsAction({
-      photolabel: { $rid: mediaReference.mediaItemRid },
-      user_id: userId || req.user?.sub,
-      timestamp: timestamp || new Date().toISOString()
+    // Get Foundry OAuth token for the action
+    const tokenUrl = `${process.env.FOUNDRY_HOST}/multipass/api/oauth2/token`;
+    const tokenResponse = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Basic ${Buffer.from(`${process.env.FOUNDRY_CLIENT_ID}:${process.env.FOUNDRY_CLIENT_SECRET}`).toString('base64')}`
+      },
+      body: 'grant_type=client_credentials&scope=api:ontologies-read api:ontologies-write'
     });
+
+    if (!tokenResponse.ok) {
+      const errorText = await tokenResponse.text();
+      throw new Error(`Failed to get Foundry token: ${tokenResponse.status} - ${errorText}`);
+    }
+
+    const { access_token } = await tokenResponse.json();
+
+    // Execute the create action using the exact API format from documentation
+    const actionUrl = `${process.env.FOUNDRY_HOST}/api/v2/ontologies/ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194/actions/create-medications-upload/apply`;
+    
+    const actionPayload = {
+      parameters: {
+        user_id: userId || req.user?.sub,
+        timestamp: timestamp || new Date().toISOString(),
+        photolabel: {
+          mediaSetRid: mediaReference.mediaSetRid,
+          mediaItemRid: mediaReference.mediaItemRid
+        }
+      },
+      options: {
+        returnEdits: "ALL"
+      }
+    };
+
+    logger.info('Executing create-medications-upload action', {
+      actionUrl,
+      payload: actionPayload,
+      correlationId: req.correlationId
+    });
+
+    const actionResponse = await fetch(actionUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${access_token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(actionPayload)
+    });
+
+    if (!actionResponse.ok) {
+      const errorText = await actionResponse.text();
+      logger.error('Failed to execute create action', {
+        status: actionResponse.status,
+        error: errorText,
+        correlationId: req.correlationId
+      });
+      throw new Error(`Failed to execute create action: ${actionResponse.status} - ${errorText}`);
+    }
+
+    const actionResult = await actionResponse.json();
 
     logger.info('Successfully created medication upload record', {
       actionResult,
