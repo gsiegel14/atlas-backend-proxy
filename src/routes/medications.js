@@ -214,11 +214,11 @@ router.post('/upload-photo', validateTokenWithScopes(['execute:actions']), async
       correlationId: req.correlationId
     });
 
-    // Get Foundry OAuth token
+    // Get Foundry OAuth token with proper scopes for media set upload
     const tokenUrl = `${process.env.FOUNDRY_HOST}/multipass/api/oauth2/token`;
     logger.info('Fetching Foundry OAuth token', {
       url: tokenUrl,
-      scopes: 'api:ontologies-read api:ontologies-write',
+      scopes: 'api:usage:mediasets-write',
       correlationId: req.correlationId
     });
 
@@ -228,7 +228,7 @@ router.post('/upload-photo', validateTokenWithScopes(['execute:actions']), async
         'Content-Type': 'application/x-www-form-urlencoded',
         'Authorization': `Basic ${Buffer.from(`${process.env.FOUNDRY_CLIENT_ID}:${process.env.FOUNDRY_CLIENT_SECRET}`).toString('base64')}`
       },
-      body: 'grant_type=client_credentials&scope=api:ontologies-read api:ontologies-write'
+      body: 'grant_type=client_credentials&scope=api:usage:mediasets-write'
     });
 
     if (!tokenResponse.ok) {
@@ -247,31 +247,13 @@ router.post('/upload-photo', validateTokenWithScopes(['execute:actions']), async
       correlationId: req.correlationId
     });
 
-    // Upload to media set using Ontology API
+    // Step 1: Upload to media set directly using Media Set API
     const mediaSetRid = 'ri.mio.main.media-set.6b57b513-6e54-4f04-b779-2a3a3f9753c8';
     
-    // Convert ontology RID to API format if needed
-    let ontologyApiName = process.env.FOUNDRY_ONTOLOGY_RID || 'ri.ontology.main.ontology.151e0d3d-719c-464d-be5c-a6dc9f53d194';
-    if (ontologyApiName.startsWith('ri.ontology.main.ontology.')) {
-      ontologyApiName = ontologyApiName.replace('ri.ontology.main.ontology.', 'ontology-');
-    }
-    
-    const objectType = process.env.FOUNDRY_MEDICATIONS_OBJECT_TYPE || 'MedicationsUpload';
-    const property = 'photolabel'; // The media reference property name
+    const mediaUploadUrl = `${process.env.FOUNDRY_HOST}/api/v2/mediasets/${mediaSetRid}/items?mediaItemPath=${encodeURIComponent(finalFilename)}`;
 
-    logger.info('Medication photo upload configuration', {
-      mediaSetRid,
-      originalOntologyRid: process.env.FOUNDRY_ONTOLOGY_RID,
-      ontologyApiName,
-      objectType,
-      property,
-      correlationId: req.correlationId
-    });
-
-    const uploadUrl = `${process.env.FOUNDRY_HOST}/api/v2/ontologies/${ontologyApiName}/objectTypes/${objectType}/media/${property}/upload?mediaItemPath=${encodeURIComponent(finalFilename)}&preview=true`;
-
-    logger.info('Making Foundry API call for medication photo upload', {
-      url: uploadUrl,
+    logger.info('Step 1: Uploading photo to media set', {
+      url: mediaUploadUrl,
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${access_token.substring(0, 20)}...`,
@@ -279,14 +261,11 @@ router.post('/upload-photo', validateTokenWithScopes(['execute:actions']), async
       },
       bodySize: photoBuffer.length,
       mediaSetRid,
-      ontologyApiName,
-      objectType,
-      property,
       filename: finalFilename,
       correlationId: req.correlationId
     });
 
-    const uploadResponse = await fetch(uploadUrl, {
+    const uploadResponse = await fetch(mediaUploadUrl, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${access_token}`,
@@ -295,7 +274,7 @@ router.post('/upload-photo', validateTokenWithScopes(['execute:actions']), async
       body: photoBuffer
     });
 
-    logger.info('Foundry API response received', {
+    logger.info('Media set upload response received', {
       status: uploadResponse.status,
       statusText: uploadResponse.statusText,
       headers: Object.fromEntries(uploadResponse.headers.entries()),
@@ -304,11 +283,11 @@ router.post('/upload-photo', validateTokenWithScopes(['execute:actions']), async
 
     if (!uploadResponse.ok) {
       const errorText = await uploadResponse.text();
-      logger.error('Failed to upload medication photo to media set', {
+      logger.error('Failed to upload photo to media set', {
         status: uploadResponse.status,
         statusText: uploadResponse.statusText,
         error: errorText,
-        url: uploadUrl,
+        url: mediaUploadUrl,
         userId: primaryUser,
         correlationId: req.correlationId
       });
@@ -317,31 +296,31 @@ router.post('/upload-photo', validateTokenWithScopes(['execute:actions']), async
 
     const uploadResult = await uploadResponse.json();
     
-    logger.info('Foundry API upload successful', {
+    logger.info('Step 1 successful: Photo uploaded to media set', {
       status: uploadResponse.status,
-      responseBody: uploadResult,
+      mediaItemRid: uploadResult.mediaItemRid,
       userId: primaryUser,
       correlationId: req.correlationId
     });
     
-    logger.info('Successfully uploaded medication photo to media set', {
+    // Step 2: Return the media reference for use in the create action
+    const mediaReference = {
+      mediaSetRid: mediaSetRid,
+      mediaItemRid: uploadResult.mediaItemRid
+    };
+
+    logger.info('Step 2: Returning media reference for create action', {
       userId: primaryUser,
       filename: finalFilename,
-      mediaReference: uploadResult.reference,
+      mediaReference,
       correlationId: req.correlationId
     });
 
     res.status(201).json({
       success: true,
-      data: {
-        mediaReference: uploadResult.reference,
-        filename: finalFilename,
-        mimeType: uploadResult.mimeType,
-        mediaSetRid,
-        uploadedAt: new Date().toISOString(),
-        userId: primaryUser
-      },
-      timestamp: new Date().toISOString(),
+      mediaReference,
+      filename: finalFilename,
+      mimeType: mimeType,
       correlationId: req.correlationId
     });
 
@@ -349,6 +328,55 @@ router.post('/upload-photo', validateTokenWithScopes(['execute:actions']), async
     logger.error('Failed to upload medication photo', {
       error: error.message,
       user: req.user?.sub,
+      correlationId: req.correlationId
+    });
+    next(error);
+  }
+});
+
+// Create medication upload record with media reference
+router.post('/create-with-photo', validateTokenWithScopes(['execute:actions']), async (req, res, next) => {
+  try {
+    const { mediaReference, userId, timestamp } = req.body || {};
+    
+    if (!mediaReference || !mediaReference.mediaItemRid) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'mediaReference with mediaItemRid is required',
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    logger.info('Creating medication upload record with photo reference', {
+      mediaReference,
+      userId,
+      correlationId: req.correlationId
+    });
+
+    // Execute the create action with the media reference
+    const actionResult = await foundryService.executeMedicationsAction({
+      photolabel: { $rid: mediaReference.mediaItemRid },
+      user_id: userId || req.user?.sub,
+      timestamp: timestamp || new Date().toISOString()
+    });
+
+    logger.info('Successfully created medication upload record', {
+      actionResult,
+      correlationId: req.correlationId
+    });
+
+    res.status(201).json({
+      success: true,
+      result: actionResult,
+      correlationId: req.correlationId
+    });
+  } catch (error) {
+    logger.error('Error creating medication upload record:', {
+      error: error.message,
+      stack: error.stack,
       correlationId: req.correlationId
     });
     next(error);
