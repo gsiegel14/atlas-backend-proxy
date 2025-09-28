@@ -152,8 +152,11 @@ function normalizeSort(sortParam) {
 }
 
 function resolveOntologyRid(foundryService) {
-  return foundryService.getApiOntologyRid()
-    || 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+  const ontologyRid = foundryService.getApiOntologyRid();
+  if (!ontologyRid) {
+    throw new Error('Foundry ontology RID is not configured. Please set FOUNDRY_ONTOLOGY_API_NAME or FOUNDRY_ONTOLOGY_RID environment variable.');
+  }
+  return ontologyRid;
 }
 
 function buildEncounterPatientFilter(patientId) {

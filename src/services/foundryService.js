@@ -76,11 +76,17 @@ export class FoundryService {
   }
 
   /**
-   * Transform ontology RID from OSDK format to API format
-   * OSDK format: ri.ontology.main.ontology.8208fd4c-b7fb-45ef-bf49-99a402136e58
-   * API format: ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194
+   * Get the API ontology name, preferring the configured environment variable
+   * Falls back to transforming the RID format if no explicit API name is set
    */
   getApiOntologyRid(osdkRid = this.ontologyRid) {
+    // First, check if we have an explicit API name configured
+    const explicitApiName = process.env.FOUNDRY_ONTOLOGY_API_NAME;
+    if (explicitApiName) {
+      logger.debug(`Using explicit ontology API name: ${explicitApiName}`);
+      return explicitApiName;
+    }
+    
     if (!osdkRid) return null;
     
     // If already in API format, return as-is
@@ -90,7 +96,9 @@ export class FoundryService {
     
     // Transform from OSDK format to API format
     if (osdkRid.startsWith('ri.ontology.main.ontology.')) {
-      return osdkRid.replace('ri.ontology.main.ontology.', 'ontology-');
+      const transformed = osdkRid.replace('ri.ontology.main.ontology.', 'ontology-');
+      logger.debug(`Transformed ontology RID: ${osdkRid} -> ${transformed}`);
+      return transformed;
     }
     
     // If unknown format, log warning and return as-is

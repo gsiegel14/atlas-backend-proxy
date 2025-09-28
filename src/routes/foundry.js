@@ -708,7 +708,7 @@ router.get('/clinical-notes', validateTokenWithScopes(['read:patient']), async (
       return res.json(cached.payload);
     }
 
-    const ontologyId = foundryService.getApiOntologyRid() || 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+    const ontologyId = foundryService.getApiOntologyRid();
     if (!ontologyId) {
       throw new Error('Foundry clinical notes ontology RID is not configured');
     }
@@ -899,7 +899,7 @@ router.get('/procedures', validateTokenWithScopes(['read:patient']), async (req,
       return res.json(cached.payload);
     }
 
-    const ontologyId = foundryService.getApiOntologyRid() || 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+    const ontologyId = foundryService.getApiOntologyRid();
     if (!ontologyId) {
       throw new Error('Foundry procedures ontology RID is not configured');
     }
@@ -1168,7 +1168,7 @@ router.get('/immunizations', validateTokenWithScopes(['read:patient']), async (r
       return res.json(cached.payload);
     }
 
-    const ontologyId = foundryService.getApiOntologyRid() || 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+    const ontologyId = foundryService.getApiOntologyRid();
     if (!ontologyId) {
       throw new Error('Foundry immunizations ontology RID is not configured');
     }
@@ -1364,7 +1364,7 @@ router.get('/observations', validateTokenWithScopes(['read:patient']), async (re
       return res.json(cached.payload);
     }
 
-    const ontologyId = foundryService.getApiOntologyRid() || 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+    const ontologyId = foundryService.getApiOntologyRid();
     if (!ontologyId) {
       throw new Error('Foundry observations ontology RID is not configured');
     }
@@ -1615,7 +1615,7 @@ router.get('/allergies', validateTokenWithScopes(['read:patient']), async (req, 
       return res.json(cached.payload);
     }
 
-    const ontologyId = foundryService.getApiOntologyRid() || 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+    const ontologyId = foundryService.getApiOntologyRid();
     if (!ontologyId) {
       throw new Error('Foundry allergies ontology RID is not configured');
     }
@@ -1800,7 +1800,7 @@ router.get('/conditions', validateTokenWithScopes(['read:patient']), async (req,
       return res.json(cached.payload);
     }
 
-    const ontologyId = foundryService.getApiOntologyRid() || 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+    const ontologyId = foundryService.getApiOntologyRid();
     if (!ontologyId) {
       throw new Error('Foundry conditions ontology RID is not configured');
     }
@@ -2341,7 +2341,7 @@ router.post('/media/upload', validateTokenWithScopes(['execute:actions']), async
       clientId: process.env.FOUNDRY_CLIENT_ID,
       clientSecret: process.env.FOUNDRY_CLIENT_SECRET,
       tokenUrl: process.env.FOUNDRY_OAUTH_TOKEN_URL,
-      ontologyApiName: 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194'
+      ontologyApiName: foundryService.getApiOntologyRid()
     });
 
     // Validate base64 data
@@ -2444,7 +2444,7 @@ router.post('/intraencounter/upload-and-create', validateTokenWithScopes(['execu
       clientId: process.env.FOUNDRY_CLIENT_ID,
       clientSecret: process.env.FOUNDRY_CLIENT_SECRET,
       tokenUrl: process.env.FOUNDRY_OAUTH_TOKEN_URL,
-      ontologyApiName: 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194'
+      ontologyApiName: foundryService.getApiOntologyRid()
     });
 
     // Step 1: Upload audio file to media set
@@ -2508,7 +2508,7 @@ router.get('/medications', validateTokenWithScopes(['read:patient']), async (req
       ? req.query.pageToken.trim()
       : undefined;
 
-    const ontologyId = foundryService.getApiOntologyRid() || 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+    const ontologyId = foundryService.getApiOntologyRid();
     if (!ontologyId) {
       throw new Error('Foundry medications ontology RID is not configured');
     }
