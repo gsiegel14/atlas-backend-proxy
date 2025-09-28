@@ -105,10 +105,8 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
       correlationId: req.correlationId
     });
 
-    // Instead of calling a non-existent Foundry dashboard endpoint,
-    // return a simple success response that indicates the patient ID is resolved
-    // The iOS app can then make separate calls to fetch the actual data
-    const dashboardData = {
+    // Try to get patient profile data from OSDK first, fall back to basic info
+    let dashboardData = {
       patientId: effectivePatientId,
       resolved: true,
       source: 'backend-proxy',
@@ -121,6 +119,70 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
         '/api/v1/foundry/medications'
       ]
     };
+
+    // Try to get patient profile data if OSDK client is available
+    if (osdkClient && typeof osdkClient === 'function') {
+      try {
+        const patientObjects = osdkClient('A');
+        const page = await patientObjects.where({ user_id: { $eq: effectivePatientId } }).fetchPage({ $pageSize: 1 });
+        
+        if (page.data.length > 0) {
+          const patientProfile = JSON.parse(JSON.stringify(page.data[0]));
+          
+          // Merge patient profile data into dashboard response
+          dashboardData = {
+            ...dashboardData,
+            rid: patientProfile.$primaryKey || patientProfile.$rid,
+            properties: {
+              firstName: patientProfile.firstName,
+              lastName: patientProfile.lastName,
+              email: patientProfile.email,
+              phonenumber: patientProfile.phonenumber,
+              address: patientProfile.address,
+              user_id: patientProfile.user_id,
+              patientId: patientProfile.patientId || effectivePatientId,
+              ...patientProfile
+            }
+          };
+          
+          logger.info('Enhanced dashboard with patient profile data', {
+            patientId: effectivePatientId,
+            hasFirstName: !!patientProfile.firstName,
+            hasLastName: !!patientProfile.lastName,
+            correlationId: req.correlationId
+          });
+        }
+      } catch (profileError) {
+        logger.warn('Failed to fetch patient profile for dashboard', {
+          patientId: effectivePatientId,
+          error: profileError.message,
+          correlationId: req.correlationId
+        });
+      }
+    } else {
+      // OSDK client not available, create a fallback patient profile
+      // Extract user info from Auth0 user ID if possible
+      const userIdParts = effectivePatientId.split('|');
+      const userIdentifier = userIdParts.length > 1 ? userIdParts[1] : effectivePatientId;
+      
+      dashboardData = {
+        ...dashboardData,
+        rid: `patient-${userIdentifier}`,
+        properties: {
+          firstName: 'Atlas',
+          lastName: 'Patient',
+          email: req.user.email || `${userIdentifier}@example.com`,
+          user_id: effectivePatientId,
+          patientId: effectivePatientId,
+          source: 'fallback-profile'
+        }
+      };
+      
+      logger.info('Using fallback patient profile (OSDK unavailable)', {
+        patientId: effectivePatientId,
+        correlationId: req.correlationId
+      });
+    }
 
     res.json({
       success: true,
