@@ -17,10 +17,16 @@ const foundryService = new FoundryService({
 });
 
 function resolveUserIdentifiers(req) {
+  // Try to get username from context (set by usernamePropagation middleware)
   const username = typeof req.context?.username === 'string'
     ? req.context.username.trim()
     : undefined;
-  return username ? [username] : [];
+  
+  // Fallback to Auth0 sub claim if username not found
+  const auth0Sub = req.user?.sub;
+  
+  const identifier = username || auth0Sub;
+  return identifier ? [identifier] : [];
 }
 
 router.get('/uploads', validateTokenWithScopes(['read:patient']), async (req, res, next) => {
@@ -138,8 +144,24 @@ router.post('/uploads', validateTokenWithScopes(['execute:actions']), async (req
 // Upload medication photo directly to media set
 router.post('/upload-photo', validateTokenWithScopes(['execute:actions']), async (req, res, next) => {
   try {
+    logger.info('Medication photo upload request', {
+      hasContext: !!req.context,
+      contextUsername: req.context?.username,
+      userSub: req.user?.sub,
+      userEmail: req.user?.email,
+      headers: {
+        'x-auth0-username': req.get('X-Auth0-Username')
+      },
+      correlationId: req.correlationId
+    });
+
     const identifiers = resolveUserIdentifiers(req);
     if (identifiers.length === 0) {
+      logger.error('Failed to resolve user identity', {
+        context: req.context,
+        user: req.user,
+        correlationId: req.correlationId
+      });
       return res.status(400).json({
         error: {
           code: 'MISSING_IDENTITY',
