@@ -2,6 +2,151 @@ import axios from 'axios';
 import CircuitBreaker from 'opossum';
 import { logger } from '../utils/logger.js';
 
+const MEDIA_ITEM_RID_PATTERN = /^ri\.(?:mio|media|foundry)\.main\.media-item\./i;
+const MEDIA_SET_RID_PATTERN = /^ri\.(?:mio|media|foundry)\.main\.media-set\./i;
+const JSON_LIKE_PATTERN = /^[\[{]/;
+
+function firstMatchingString(source, paths, predicate) {
+  if (!source || typeof source !== 'object') {
+    return null;
+  }
+
+  for (const path of paths) {
+    let current = source;
+    let valid = true;
+
+    for (const key of path) {
+      if (current == null) {
+        valid = false;
+        break;
+      }
+      current = current[key];
+    }
+
+    if (!valid) {
+      continue;
+    }
+
+    if (typeof current === 'string') {
+      const trimmed = current.trim();
+      if (trimmed && (!predicate || predicate(trimmed))) {
+        return trimmed;
+      }
+    }
+  }
+
+  return null;
+}
+
+function extractMediaReferenceData(value, visited = new WeakSet()) {
+  if (value == null) {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const result = extractMediaReferenceData(entry, visited);
+      if (result) {
+        return result;
+      }
+    }
+    return null;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    if (MEDIA_ITEM_RID_PATTERN.test(trimmed)) {
+      return {
+        mediaItemRid: trimmed
+      };
+    }
+
+    if (JSON_LIKE_PATTERN.test(trimmed)) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        return extractMediaReferenceData(parsed, visited);
+      } catch (error) {
+        // Ignore JSON parsing errors and fall back to other strategies
+        return null;
+      }
+    }
+
+    return null;
+  }
+
+  if (typeof value !== 'object') {
+    return null;
+  }
+
+  if (visited.has(value)) {
+    return null;
+  }
+  visited.add(value);
+
+  const ridPaths = [
+    ['mediaItemRid'],
+    ['mediaItemRID'],
+    ['mediaItem', 'rid'],
+    ['mediaItem', '$rid'],
+    ['reference', 'mediaItemRid'],
+    ['reference', 'mediaItem', 'rid'],
+    ['reference', 'mediaItem', '$rid'],
+    ['reference', 'mediaSetViewItem', 'mediaItemRid'],
+    ['mediaSetViewItem', 'mediaItemRid'],
+    ['$rid'],
+    ['rid']
+  ];
+
+  const mediaItemRid = firstMatchingString(value, ridPaths, (candidate) => MEDIA_ITEM_RID_PATTERN.test(candidate));
+
+  if (mediaItemRid) {
+    const setPaths = [
+      ['mediaSetRid'],
+      ['reference', 'mediaSetRid'],
+      ['reference', 'mediaSet', 'rid'],
+      ['reference', 'mediaSet', '$rid'],
+      ['reference', 'mediaSetViewItem', 'mediaSetRid'],
+      ['mediaSet', 'rid'],
+      ['mediaSet', '$rid'],
+      ['mediaSetViewItem', 'mediaSetRid']
+    ];
+    const mimePaths = [
+      ['mimeType'],
+      ['contentType'],
+      ['reference', 'mediaSetViewItem', 'mimeType']
+    ];
+    const pathPaths = [
+      ['mediaItemPath'],
+      ['reference', 'mediaSetViewItem', 'mediaItemPath']
+    ];
+
+    const mediaSetRid = firstMatchingString(value, setPaths, (candidate) => MEDIA_SET_RID_PATTERN.test(candidate));
+    const mimeType = firstMatchingString(value, mimePaths, (candidate) => candidate.length > 0);
+    const mediaItemPath = firstMatchingString(value, pathPaths, (candidate) => candidate.length > 0);
+
+    return {
+      mediaItemRid,
+      mediaSetRid: mediaSetRid || null,
+      mimeType: mimeType || null,
+      mediaItemPath: mediaItemPath || null
+    };
+  }
+
+  for (const key of Object.keys(value)) {
+    const nested = value[key];
+    const result = extractMediaReferenceData(nested, visited);
+    if (result) {
+      return result;
+    }
+  }
+
+  return null;
+}
+
 export class FoundryService {
   constructor(config) {
     this.host = config.host;
@@ -184,6 +329,7 @@ export class FoundryService {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
+        'Accept': 'application/json, text/plain, */*',
         ...headers
       },
       timeout: 10000
@@ -195,20 +341,52 @@ export class FoundryService {
     
     logger.debug(`Making Foundry API request: ${method} ${endpoint}`);
     
+    // Helper to sanitize upstream non-JSON (e.g., HTML) error bodies
+    const sanitizeUpstreamBody = (rawBody, responseHeaders = {}) => {
+      try {
+        if (rawBody && typeof rawBody === 'object') {
+          return rawBody;
+        }
+        const contentType = String(
+          responseHeaders['content-type'] || responseHeaders['Content-Type'] || ''
+        ).toLowerCase();
+        const asString = typeof rawBody === 'string' ? rawBody : String(rawBody ?? '');
+        const looksHtml = contentType.includes('text/html') || /<html[\s>]/i.test(asString);
+        if (looksHtml) {
+          const titleMatch = asString.match(/<title>([^<]*)<\/title>/i);
+          const h1Match = asString.match(/<h1[^>]*>([^<]*)<\/h1>/i);
+          const summary = (titleMatch && titleMatch[1]) || (h1Match && h1Match[1]) || 'HTML error page from upstream';
+          return { summary, isHtml: true };
+        }
+        try {
+          return JSON.parse(asString);
+        } catch {
+          return { summary: asString.slice(0, 300) };
+        }
+      } catch (e) {
+        return { summary: 'Upstream error (unparseable body)' };
+      }
+    };
+
     try {
       const response = await axios(config);
       return response.data;
     } catch (error) {
+      const status = error.response?.status;
+      const headers = error.response?.headers || {};
+      const body = error.response?.data;
+      const sanitized = sanitizeUpstreamBody(body, headers);
+
       logger.error(`Foundry API request failed: ${method} ${endpoint}`, {
         error: error.message,
-        status: error.response?.status,
-        data: error.response?.data
+        status,
+        contentType: headers['content-type'] || headers['Content-Type'],
+        sanitized
       });
       
-      // Re-throw with enhanced error information
       const enhancedError = new Error(`Foundry API Error: ${error.message}`);
-      enhancedError.status = error.response?.status || 500;
-      enhancedError.foundryError = error.response?.data;
+      enhancedError.status = status || 500;
+      enhancedError.foundryError = sanitized;
       throw enhancedError;
     }
   }
@@ -811,7 +989,12 @@ export class FoundryService {
             objectType,
             matchedField: field
           });
-          return match;
+          return this.enrichProfileWithMediaFields(match, {
+            userId,
+            ontologyRid,
+            objectType,
+            matchedField: field
+          });
         }
       } catch (error) {
         if (error.status === 400 || error.status === 404) {
@@ -837,6 +1020,96 @@ export class FoundryService {
       objectType
     });
     return null;
+  }
+
+  enrichProfileWithMediaFields(profile, context = {}) {
+    if (!profile || typeof profile !== 'object') {
+      return profile;
+    }
+
+    const normalized = { ...profile };
+    const hasPropertiesObject = profile.properties && typeof profile.properties === 'object';
+    const sourceProperties = hasPropertiesObject ? profile.properties : profile;
+    const properties = { ...sourceProperties };
+    const defaultMediaSetRid = (process.env.FOUNDRY_PROFILE_PHOTO_MEDIA_SET_RID || '').trim();
+
+    const photoCandidates = [];
+    const addCandidate = (candidate) => {
+      if (candidate !== undefined && candidate !== null) {
+        photoCandidates.push(candidate);
+      }
+    };
+
+    addCandidate(properties.profilePhotoReference);
+    addCandidate(properties.profilePhoto);
+    addCandidate(properties.photo);
+    addCandidate(properties.photoReference);
+    addCandidate(properties.photo_media);
+    addCandidate(properties.photoMedia);
+    addCandidate(profile.photo);
+    addCandidate(profile.photoReference);
+
+    let mediaInfo = null;
+    for (const candidate of photoCandidates) {
+      mediaInfo = extractMediaReferenceData(candidate);
+      if (mediaInfo) {
+        break;
+      }
+    }
+
+    const existingItemRid = typeof properties.profilePhotoMediaItemRid === 'string'
+      ? properties.profilePhotoMediaItemRid.trim()
+      : '';
+    const existingSetRid = typeof properties.profilePhotoMediaSetRid === 'string'
+      ? properties.profilePhotoMediaSetRid.trim()
+      : '';
+
+    if (!mediaInfo && existingItemRid) {
+      mediaInfo = {
+        mediaItemRid: existingItemRid,
+        mediaSetRid: existingSetRid || (defaultMediaSetRid || null),
+        mimeType: typeof properties.profilePhotoMimeType === 'string' ? properties.profilePhotoMimeType : null,
+        mediaItemPath: typeof properties.profilePhotoMediaItemPath === 'string' ? properties.profilePhotoMediaItemPath : null
+      };
+    }
+
+    if (mediaInfo && typeof mediaInfo.mediaItemRid === 'string' && mediaInfo.mediaItemRid.trim()) {
+      const normalizedItemRid = mediaInfo.mediaItemRid.trim();
+      const resolvedSetRid = mediaInfo.mediaSetRid && mediaInfo.mediaSetRid.trim()
+        ? mediaInfo.mediaSetRid.trim()
+        : (existingSetRid || (defaultMediaSetRid || null));
+
+      const willSetItemRid = !existingItemRid;
+      const willSetSetRid = !existingSetRid && resolvedSetRid;
+
+      if (willSetItemRid) {
+        properties.profilePhotoMediaItemRid = normalizedItemRid;
+        logger.debug('Resolved profile photo media item RID', {
+          mediaItemRid: normalizedItemRid,
+          ...context
+        });
+      }
+
+      if (willSetSetRid) {
+        properties.profilePhotoMediaSetRid = resolvedSetRid;
+        logger.debug('Resolved profile photo media set RID', {
+          mediaSetRid: resolvedSetRid,
+          source: mediaInfo.mediaSetRid ? 'reference' : 'default',
+          ...context
+        });
+      }
+
+      if (mediaInfo.mimeType && !properties.profilePhotoMimeType) {
+        properties.profilePhotoMimeType = mediaInfo.mimeType;
+      }
+
+      if (mediaInfo.mediaItemPath && !properties.profilePhotoMediaItemPath) {
+        properties.profilePhotoMediaItemPath = mediaInfo.mediaItemPath;
+      }
+    }
+
+    normalized.properties = properties;
+    return normalized;
   }
 
   async getPatientDashboard(patientId) {

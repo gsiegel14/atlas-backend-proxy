@@ -2415,11 +2415,11 @@ router.get('/media/items/:mediaItemRid/content', validateTokenWithScopes(['read:
       ontologyRid: osdkOntologyRid
     });
 
-    // Build the Foundry media content URL
-    const mediaUrl = `${osdkHost}/api/v2/media/${mediaItemRid}/content`;
+    // Build the Foundry media content endpoint (path only, not full URL)
+    const mediaEndpoint = `/api/v2/media/${mediaItemRid}/content`;
     
     // Fetch the media content from Foundry
-    const response = await foundryService.apiCall('GET', mediaUrl);
+    const response = await foundryService.apiCall('GET', mediaEndpoint);
     
     // Forward the content with appropriate headers
     res.set({
