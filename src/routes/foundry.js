@@ -2343,23 +2343,41 @@ router.post('/media/upload', validateTokenWithScopes(['execute:actions']), async
       ontologyRid: osdkOntologyRid
     });
 
-    // Upload directly to media set instead of using ontology actions
-    const mediaSetRid = 'ri.mio.main.media-set.774ed489-e6ba-4f75-abd3-784080d7cfb3';
+    // Use proper Foundry media content upload endpoint
+    // POST /api/v2/ontologies/{ontology}/objectTypes/{objectType}/media/{property}/upload
     
     // Convert base64 data to buffer
     const fileBuffer = Buffer.from(data, 'base64');
     
-    // Create media item path based on media type
+    // Get Foundry token
+    const token = await foundryService.getToken();
+    
+    // Configure object type and property based on media type
+    let objectType, property;
+    if (mediaType === 'audio') {
+      objectType = 'AtlasIntraencounter'; // or whatever your audio object type is
+      property = 'audiofile';
+    } else {
+      objectType = 'MedicationsUpload'; // for medication images
+      property = 'photolabel';
+    }
+    
+    // Create media item path
     const sanitizedFilename = filename.replace(/[^a-zA-Z0-9.-]/g, '_');
     const mediaItemPath = mediaType === 'audio' 
       ? `encounters/audio/${sanitizedFilename}`
       : `medications/${sanitizedFilename}`;
     
-    // Get Foundry token
-    const token = await foundryService.getToken();
+    // Use the proper media content upload endpoint
+    const uploadUrl = `${process.env.FOUNDRY_HOST}/api/v2/ontologies/${osdkOntologyRid}/objectTypes/${objectType}/media/${property}/upload?mediaItemPath=${encodeURIComponent(mediaItemPath)}&preview=true`;
     
-    // Upload to media set using Foundry API
-    const uploadUrl = `${process.env.FOUNDRY_HOST}/api/v2/mediasets/${mediaSetRid}/items?mediaItemPath=${encodeURIComponent(mediaItemPath)}&preview=true`;
+    logger.info('Uploading to Foundry media endpoint', {
+      uploadUrl,
+      objectType,
+      property,
+      mediaItemPath,
+      fileSize: fileBuffer.length
+    });
     
     const uploadResponse = await fetch(uploadUrl, {
       method: 'POST',
@@ -2372,14 +2390,15 @@ router.post('/media/upload', validateTokenWithScopes(['execute:actions']), async
     
     if (!uploadResponse.ok) {
       const errorText = await uploadResponse.text();
-      logger.error('Failed to upload to media set', {
+      logger.error('Failed to upload to Foundry media endpoint', {
         status: uploadResponse.status,
         error: errorText,
-        mediaSetRid,
-        mediaItemPath,
+        uploadUrl,
+        objectType,
+        property,
         userId: req.user?.sub
       });
-      throw new Error(`Media set upload failed: ${uploadResponse.status} - ${errorText}`);
+      throw new Error(`Foundry media upload failed: ${uploadResponse.status} - ${errorText}`);
     }
     
     const result = await uploadResponse.json();
