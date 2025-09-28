@@ -2401,6 +2401,96 @@ router.post('/media/upload', validateTokenWithScopes(['execute:actions']), async
   }
 });
 
+// Combined endpoint: Upload audio and create intraencounter in one call
+router.post('/intraencounter/upload-and-create', validateTokenWithScopes(['execute:actions']), async (req, res, next) => {
+  try {
+    const {
+      filename,
+      contentType = 'audio/wav',
+      data, // base64 audio data
+      timestamp,
+      transcript,
+      location,
+      provider_name,
+      speciality,
+      hospital
+    } = req.body || {};
+
+    if (!filename || !data || !transcript) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        required: ['filename', 'data', 'transcript']
+      });
+    }
+
+    const userId = req.user?.sub;
+    if (!userId) {
+      return res.status(400).json({
+        error: 'User authentication required'
+      });
+    }
+
+    logger.info('Combined upload and create intraencounter', {
+      userId,
+      filename,
+      contentType,
+      dataSize: data.length,
+      hasTranscript: !!transcript
+    });
+
+    // Create dedicated media upload service
+    const mediaUploadService = new MediaUploadService({
+      foundryHost: process.env.FOUNDRY_HOST,
+      clientId: process.env.FOUNDRY_CLIENT_ID,
+      clientSecret: process.env.FOUNDRY_CLIENT_SECRET,
+      tokenUrl: process.env.FOUNDRY_OAUTH_TOKEN_URL,
+      ontologyApiName: 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194'
+    });
+
+    // Step 1: Upload audio file to media set
+    const uploadResult = await mediaUploadService.uploadAudioFile(
+      data,
+      filename,
+      contentType,
+      userId
+    );
+
+    logger.info('Audio upload successful, creating intraencounter', {
+      userId,
+      filename,
+      hasMediaReference: !!uploadResult.reference
+    });
+
+    // Step 2: Create intraencounter with media reference
+    const intraencounterResult = await mediaUploadService.createIntraencounterProduction({
+      timestamp: timestamp || new Date().toISOString(),
+      user_id: userId,
+      audiofile: uploadResult.reference || uploadResult,
+      transcript,
+      location: location || '',
+      provider_name: provider_name || '',
+      speciality: speciality || '',
+      hospital: hospital || ''
+    });
+
+    res.status(201).json({
+      success: true,
+      uploadResult,
+      intraencounterResult,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    logger.error('Error in combined upload and create:', {
+      error: error.message,
+      userId: req.user?.sub,
+      filename: req.body?.filename
+    });
+    
+    next(error);
+  }
+});
+
 // Get Fasten medications for a patient
 router.get('/medications', validateTokenWithScopes(['read:patient']), async (req, res, next) => {
   let patientContext;

@@ -1,17 +1,17 @@
 import express from 'express';
 import { validateTokenWithScopes } from '../middleware/auth0.js';
-import { FoundryService } from '../services/foundryService.js';
+import { MediaUploadService } from '../services/mediaUploadService.js';
 import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
-const foundryService = new FoundryService({
-  host: process.env.FOUNDRY_HOST,
+// Use MediaUploadService for direct Foundry action calls
+const mediaUploadService = new MediaUploadService({
+  foundryHost: process.env.FOUNDRY_HOST,
   clientId: process.env.FOUNDRY_CLIENT_ID,
   clientSecret: process.env.FOUNDRY_CLIENT_SECRET,
   tokenUrl: process.env.FOUNDRY_OAUTH_TOKEN_URL,
-  ontologyRid: process.env.FOUNDRY_ONTOLOGY_RID,
-  intraencounterActionId: process.env.FOUNDRY_INTRAENCOUNTER_ACTION_ID
+  ontologyApiName: 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194'
 });
 
 function resolveUserId(req) {
@@ -73,24 +73,21 @@ router.post('/', validateTokenWithScopes(['execute:actions']), async (req, res, 
       });
     }
 
-    logger.info('Applying intra-encounter production action', {
+    logger.info('Applying intra-encounter production action via direct Foundry API', {
       userId,
-      hasAudioRid: typeof audiofile === 'object' && Boolean(audiofile?.$rid),
+      hasAudiofile: !!audiofile,
       correlationId: req.correlationId
     });
 
-    const result = await foundryService.createIntraencounterProduction({
-      userId,
+    const result = await mediaUploadService.createIntraencounterProduction({
       timestamp,
+      user_id: userId,
       audiofile,
       transcript,
       location,
-      providerName,
-      provider_name,
+      provider_name: provider_name || providerName,
       speciality,
-      hospital,
-      additionalParameters,
-      options
+      hospital
     });
 
     res.status(201).json({

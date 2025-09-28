@@ -133,6 +133,82 @@ export class MediaUploadService {
   }
 
   /**
+   * Create Atlas Intraencounter Production record using direct Foundry action API
+   * @param {Object} params - Parameters for the intraencounter
+   * @param {string} params.timestamp - ISO 8601 timestamp
+   * @param {string} params.user_id - User ID
+   * @param {Object} params.audiofile - Media reference from upload
+   * @param {string} params.transcript - Transcribed text
+   * @param {string} params.location - Location
+   * @param {string} params.provider_name - Provider name
+   * @param {string} params.speciality - Medical specialty
+   * @param {string} params.hospital - Hospital name
+   * @returns {Promise<Object>} Action result
+   */
+  async createIntraencounterProduction(params) {
+    // Get authentication token via direct REST API
+    const token = await this.getFoundryToken();
+    
+    // Build the Foundry action URL
+    const actionUrl = `${this.foundryHost}/api/v2/ontologies/${this.ontologyApiName}/actions/create-atlas-intraencounter-production/apply`;
+    
+    logger.info('MediaUploadService: Creating intraencounter via Foundry action', {
+      actionUrl,
+      ontologyApiName: this.ontologyApiName,
+      userId: params.user_id,
+      hasAudiofile: !!params.audiofile,
+      hasTranscript: !!params.transcript
+    });
+
+    const requestBody = {
+      parameters: {
+        timestamp: params.timestamp || new Date().toISOString(),
+        user_id: params.user_id,
+        audiofile: params.audiofile,
+        transcript: params.transcript,
+        location: params.location || '',
+        provider_name: params.provider_name || '',
+        speciality: params.speciality || '',
+        hospital: params.hospital || ''
+      },
+      options: {
+        mode: "VALIDATE_AND_EXECUTE",
+        returnEdits: "ALL"
+      }
+    };
+
+    const actionResponse = await fetch(actionUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!actionResponse.ok) {
+      const errorText = await actionResponse.text();
+      logger.error('MediaUploadService: Foundry action failed', {
+        status: actionResponse.status,
+        error: errorText,
+        actionUrl,
+        userId: params.user_id
+      });
+      throw new Error(`Foundry action failed: ${actionResponse.status} - ${errorText}`);
+    }
+
+    const result = await actionResponse.json();
+    
+    logger.info('MediaUploadService: Foundry action successful', {
+      ontologyApiName: this.ontologyApiName,
+      userId: params.user_id,
+      hasResult: !!result
+    });
+
+    return result;
+  }
+
+  /**
    * Core method to upload binary data to Foundry media endpoint
    * Uses direct media set API since object types are not configured correctly
    * @private
