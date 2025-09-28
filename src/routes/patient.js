@@ -31,9 +31,15 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
         req.user?.sub
       ].filter(Boolean);
 
-      const patientObjects = osdkClient('A');
+      // Check if OSDK client is available for patient ID resolution
+      if (!osdkClient || typeof osdkClient !== 'function') {
+        logger.warn('OSDK client not available for patient ID resolution, skipping', {
+          correlationId: req.correlationId
+        });
+      } else {
+        const patientObjects = osdkClient('A');
 
-      for (const identifier of identifierCandidates) {
+        for (const identifier of identifierCandidates) {
         try {
           const page = await patientObjects.where({ user_id: { $eq: identifier } }).fetchPage({ $pageSize: 1 });
           if (page.data.length > 0) {
@@ -62,6 +68,7 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
           });
         }
       }
+    }
     }
 
     if (!effectivePatientId) {
@@ -155,6 +162,23 @@ router.post('/profile/search', validateTokenWithScopes(['read:patient']), async 
 
     const pageSize = Math.max(Math.min(parseInt(limit, 10) || 1, 100), 1);
     const requestUrl = `${osdkHost}/api/v2/ontologies/${osdkOntologyRid}/objects/${objectTypePath}/search`;
+    
+    // Check if OSDK client is available
+    if (!osdkClient || typeof osdkClient !== 'function') {
+      logger.error('OSDK client not available for patient profile search', {
+        osdkClientType: typeof osdkClient,
+        correlationId: req.correlationId
+      });
+      return res.status(503).json({
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Internal server error',
+          correlationId: req.correlationId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+    
     const patientObjects = osdkClient('A');
     let lastObjects = [];
 
