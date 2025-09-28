@@ -99,21 +99,24 @@ export class MediaUploadService {
   }
 
   /**
-   * Core method to upload binary data to Foundry media content endpoint
+   * Core method to upload binary data to Foundry media endpoint
+   * Uses direct media set upload as fallback when ontology approach fails
    * @private
    */
   async uploadToFoundryMediaEndpoint(fileBuffer, objectType, property, mediaItemPath, contentType, userId) {
     // Get authentication token
     const token = await this.getToken();
     
-    // Build the Foundry media content upload URL
-    // POST /api/v2/ontologies/{ontology}/objectTypes/{objectType}/media/{property}/upload
-    const uploadUrl = `${this.foundryHost}/api/v2/ontologies/${this.ontologyRid}/objectTypes/${objectType}/media/${property}/upload?mediaItemPath=${encodeURIComponent(mediaItemPath)}&preview=true`;
+    // Use direct media set upload (more reliable)
+    // The ontology RID seems to be incorrect, so we'll use the media set directly
+    const mediaSetRid = 'ri.mio.main.media-set.774ed489-e6ba-4f75-abd3-784080d7cfb3';
     
-    logger.info('MediaUploadService: Uploading to Foundry', {
+    // Build media set upload URL
+    const uploadUrl = `${this.foundryHost}/api/v2/mediasets/${mediaSetRid}/items?mediaItemPath=${encodeURIComponent(mediaItemPath)}&preview=true`;
+    
+    logger.info('MediaUploadService: Uploading to media set', {
       uploadUrl,
-      objectType,
-      property,
+      mediaSetRid,
       mediaItemPath,
       fileSize: fileBuffer.length,
       contentType,
@@ -133,25 +136,23 @@ export class MediaUploadService {
     // Handle response
     if (!uploadResponse.ok) {
       const errorText = await uploadResponse.text();
-      logger.error('MediaUploadService: Foundry upload failed', {
+      logger.error('MediaUploadService: Media set upload failed', {
         status: uploadResponse.status,
         error: errorText,
         uploadUrl,
-        objectType,
-        property,
+        mediaSetRid,
         userId
       });
-      throw new Error(`Foundry media upload failed: ${uploadResponse.status} - ${errorText}`);
+      throw new Error(`Media set upload failed: ${uploadResponse.status} - ${errorText}`);
     }
 
     const result = await uploadResponse.json();
     
-    logger.info('MediaUploadService: Upload successful', {
-      objectType,
-      property,
+    logger.info('MediaUploadService: Media set upload successful', {
+      mediaSetRid,
       mediaItemPath,
       userId,
-      hasReference: !!result.reference
+      result
     });
 
     return result;
