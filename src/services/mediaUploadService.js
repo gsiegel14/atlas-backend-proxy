@@ -100,23 +100,35 @@ export class MediaUploadService {
 
   /**
    * Core method to upload binary data to Foundry media endpoint
-   * Uses direct media set upload as fallback when ontology approach fails
+   * Uses ontology media content upload endpoint with correct API name format
    * @private
    */
   async uploadToFoundryMediaEndpoint(fileBuffer, objectType, property, mediaItemPath, contentType, userId) {
     // Get authentication token
     const token = await this.getToken();
     
-    // Use direct media set upload (more reliable)
-    // The ontology RID seems to be incorrect, so we'll use the media set directly
-    const mediaSetRid = 'ri.mio.main.media-set.774ed489-e6ba-4f75-abd3-784080d7cfb3';
+    // Convert ontology RID to API name format if needed
+    let ontologyApiName = this.ontologyRid;
+    if (ontologyApiName.startsWith('ri.ontology.main.ontology.')) {
+      // Extract the UUID part and format as API name
+      const uuid = ontologyApiName.replace('ri.ontology.main.ontology.', '');
+      ontologyApiName = `ontology-${uuid}`;
+    }
     
-    // Build media set upload URL
-    const uploadUrl = `${this.foundryHost}/api/v2/mediasets/${mediaSetRid}/items?mediaItemPath=${encodeURIComponent(mediaItemPath)}&preview=true`;
+    logger.info('MediaUploadService: Using ontology API name', {
+      originalRid: this.ontologyRid,
+      ontologyApiName
+    });
     
-    logger.info('MediaUploadService: Uploading to media set', {
+    // Build the Foundry media content upload URL with correct ontology API name
+    // POST /api/v2/ontologies/{ontology}/objectTypes/{objectType}/media/{property}/upload
+    const uploadUrl = `${this.foundryHost}/api/v2/ontologies/${ontologyApiName}/objectTypes/${objectType}/media/${property}/upload?mediaItemPath=${encodeURIComponent(mediaItemPath)}&preview=true`;
+    
+    logger.info('MediaUploadService: Uploading to Foundry ontology endpoint', {
       uploadUrl,
-      mediaSetRid,
+      ontologyApiName,
+      objectType,
+      property,
       mediaItemPath,
       fileSize: fileBuffer.length,
       contentType,
@@ -136,23 +148,27 @@ export class MediaUploadService {
     // Handle response
     if (!uploadResponse.ok) {
       const errorText = await uploadResponse.text();
-      logger.error('MediaUploadService: Media set upload failed', {
+      logger.error('MediaUploadService: Foundry ontology upload failed', {
         status: uploadResponse.status,
         error: errorText,
         uploadUrl,
-        mediaSetRid,
+        ontologyApiName,
+        objectType,
+        property,
         userId
       });
-      throw new Error(`Media set upload failed: ${uploadResponse.status} - ${errorText}`);
+      throw new Error(`Foundry ontology media upload failed: ${uploadResponse.status} - ${errorText}`);
     }
 
     const result = await uploadResponse.json();
     
-    logger.info('MediaUploadService: Media set upload successful', {
-      mediaSetRid,
+    logger.info('MediaUploadService: Foundry ontology upload successful', {
+      ontologyApiName,
+      objectType,
+      property,
       mediaItemPath,
       userId,
-      result
+      hasReference: !!result.reference
     });
 
     return result;
