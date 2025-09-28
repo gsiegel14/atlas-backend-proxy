@@ -2242,7 +2242,7 @@ router.get('/ri.mio.main.media-item.:mediaItemId', validateTokenWithScopes(['rea
       host: osdkHost,
       clientId: process.env.FOUNDRY_CLIENT_ID,
       clientSecret: process.env.FOUNDRY_CLIENT_SECRET,
-      tokenUrl: process.env.FOUNDRY_TOKEN_URL,
+      tokenUrl: process.env.FOUNDRY_OAUTH_TOKEN_URL,
       ontologyRid: osdkOntologyRid
     });
 
@@ -2280,7 +2280,7 @@ router.post('/actions/create-media/apply', validateTokenWithScopes(['execute:act
       host: osdkHost,
       clientId: process.env.FOUNDRY_CLIENT_ID,
       clientSecret: process.env.FOUNDRY_CLIENT_SECRET,
-      tokenUrl: process.env.FOUNDRY_TOKEN_URL,
+      tokenUrl: process.env.FOUNDRY_OAUTH_TOKEN_URL,
       ontologyRid: osdkOntologyRid
     });
 
@@ -2338,7 +2338,7 @@ router.post('/media/upload', validateTokenWithScopes(['execute:actions']), async
       host: osdkHost,
       clientId: process.env.FOUNDRY_CLIENT_ID,
       clientSecret: process.env.FOUNDRY_CLIENT_SECRET,
-      tokenUrl: process.env.FOUNDRY_TOKEN_URL,
+      tokenUrl: process.env.FOUNDRY_OAUTH_TOKEN_URL,
       ontologyRid: osdkOntologyRid
     });
 
