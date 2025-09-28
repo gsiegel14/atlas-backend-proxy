@@ -18,6 +18,43 @@ const foundryService = new FoundryService({
   medicationsUploadObjectType: process.env.FOUNDRY_MEDICATIONS_OBJECT_TYPE
 });
 
+// Derive human-friendly profile fields from JWT claims/headers
+function deriveProfileFromClaims(req) {
+  try {
+    const emailClaim = typeof req.user?.email === 'string' ? req.user.email.trim() : undefined;
+    const preferred = typeof req.user?.preferred_username === 'string' ? req.user.preferred_username.trim() : undefined;
+    const nickname = typeof req.user?.nickname === 'string' ? req.user.nickname.trim() : undefined;
+    const name = typeof req.user?.name === 'string' ? req.user.name.trim() : undefined;
+    const givenName = typeof req.user?.given_name === 'string' ? req.user.given_name.trim() : undefined;
+    const familyName = typeof req.user?.family_name === 'string' ? req.user.family_name.trim() : undefined;
+    const headerUsername = typeof req.context?.username === 'string' ? req.context.username.trim() : undefined;
+
+    const resolvedEmail = emailClaim || (preferred?.includes('@') ? preferred : undefined) || (headerUsername?.includes('@') ? headerUsername : undefined) || undefined;
+    const displaySource = name || headerUsername || preferred || nickname || (resolvedEmail ? resolvedEmail.split('@')[0] : undefined);
+
+    let firstName = givenName;
+    let lastName = familyName;
+
+    if (!firstName || !lastName) {
+      if (displaySource && displaySource.includes(' ')) {
+        const parts = displaySource.split(/\s+/).filter(Boolean);
+        firstName = firstName || parts[0];
+        lastName = lastName || parts.slice(1).join(' ');
+      } else if (!firstName && displaySource) {
+        firstName = displaySource;
+      }
+    }
+
+    return {
+      firstName: firstName || undefined,
+      lastName: lastName || undefined,
+      email: resolvedEmail || emailClaim || undefined
+    };
+  } catch {
+    return { firstName: undefined, lastName: undefined, email: undefined };
+  }
+}
+
 // REST API fallback for patient profile search
 async function searchPatientProfileViaREST(value, fieldCandidates, limit, correlationId) {
   try {
@@ -321,18 +358,18 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
     
     // If neither OSDK nor REST API worked, use fallback
     if (!profileFound) {
-      // Create a fallback patient profile
-      // Extract user info from Auth0 user ID if possible
+      // Create a fallback patient profile from claims when possible
+      const claims = deriveProfileFromClaims(req);
       const userIdParts = effectivePatientId.split('|');
       const userIdentifier = userIdParts.length > 1 ? userIdParts[1] : effectivePatientId;
-      
+
       dashboardData = {
         ...dashboardData,
         rid: `patient-${userIdentifier}`,
         properties: {
-          firstName: 'Atlas',
-          lastName: 'Patient',
-          email: req.user.email || `${userIdentifier}@example.com`,
+          firstName: claims.firstName || 'Atlas',
+          lastName: claims.lastName || 'Patient',
+          email: claims.email || req.user.email || `${userIdentifier}@example.com`,
           user_id: effectivePatientId,
           patientId: effectivePatientId,
           source: 'fallback-profile'
