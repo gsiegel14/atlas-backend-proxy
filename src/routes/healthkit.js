@@ -83,8 +83,15 @@ async function uploadHealthKitToDataset(auth0id, rawhealthkit, device, timestamp
     raw_healthkit_record: JSON.stringify(record)
   }));
 
-  // Create NDJSON content (newline-delimited JSON)
-  const ndjsonContent = datasetRecords.map(record => JSON.stringify(record)).join('\n');
+  // Create single JSON file with auth0_user_id prominently included
+  const singleJsonContent = JSON.stringify({
+    auth0_user_id: auth0id,
+    device: exportDevice,
+    ingested_at: new Date().toISOString(),
+    export_timestamp: exportTimestamp,
+    record_count: records.length,
+    data: datasetRecords
+  }, null, 2);
 
   logger.info('Uploading HealthKit data to dataset', {
     datasetRid: HEALTHKIT_DATASET_RID,
@@ -113,9 +120,9 @@ async function uploadHealthKitToDataset(auth0id, rawhealthkit, device, timestamp
 
   const { access_token } = await tokenResponse.json();
 
-  // Generate filename with timestamp (.ndjson extension for clarity)
+  // Generate filename with timestamp (.json extension for single JSON file)
   const safeTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const fileName = `healthkit/raw/${auth0id}/${safeTimestamp}.ndjson`;
+  const fileName = `healthkit/raw/${auth0id}/${safeTimestamp}.json`;
 
   // Upload file directly to Foundry dataset using Datasets API v2
   const uploadUrl = `${process.env.FOUNDRY_HOST}/api/v2/datasets/${HEALTHKIT_DATASET_RID}/files/${encodeURIComponent(fileName)}/upload?transactionType=APPEND`;
@@ -124,9 +131,9 @@ async function uploadHealthKitToDataset(auth0id, rawhealthkit, device, timestamp
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${access_token}`,
-      'Content-Type': 'application/x-ndjson'
+      'Content-Type': 'application/json'
     },
-    body: ndjsonContent
+    body: singleJsonContent
   });
 
   if (!uploadResponse.ok) {
@@ -157,7 +164,7 @@ async function uploadHealthKitToDataset(auth0id, rawhealthkit, device, timestamp
     records_ingested: records.length,
     dataset_records_created: datasetRecords.length,
     file_path: fileName,
-    file_format: 'ndjson',
+    file_format: 'json',
     transaction_rid: transactionRid,
     ingestion_timestamp: new Date().toISOString(),
     correlationId

@@ -72,33 +72,27 @@ if (bypassInitialization) {
 } else {
     const tokenProvider = createTokenProvider();
 
-    // Convert ontology RID to API name format if needed
-    let ontologyApiName = ontologyRid;
-    if (ontologyApiName.startsWith('ri.ontology.main.ontology.')) {
-        // Extract the UUID part and format as API name
-        const uuid = ontologyApiName.replace('ri.ontology.main.ontology.', '');
-        ontologyApiName = `ontology-${uuid}`;
-        console.log('Converted ontology RID to API name:', {
-            originalRid: ontologyRid,
-            apiName: ontologyApiName
-        });
-    }
+    // OSDK client uses the original RID format
+    console.log('Using original ontology RID for OSDK client:', {
+        ontologyRid: ontologyRid
+    });
 
     // createClient returns a function that can be invoked with an object type export from the SDK
     try {
-        console.log('Creating OSDK client with:', { host, ontologyApiName: ontologyApiName.substring(0, 30) + '...' });
-        client = createOSDKClient(host, ontologyApiName, tokenProvider);
+        console.log('Creating OSDK client with:', { host, ontologyRid: ontologyRid.substring(0, 30) + '...' });
+        client = createOSDKClient(host, ontologyRid, tokenProvider);
         console.log('OSDK client created successfully');
     } catch (error) {
-        console.error('Failed to create OSDK client:', {
+        console.error('WARNING: Failed to create OSDK client (continuing with REST API only):', {
             error: error.message,
             host,
-            originalRid: ontologyRid,
-            ontologyApiName,
-            ontologyApiNameLength: ontologyApiName.length,
-            ontologyApiNameType: typeof ontologyApiName
+            ontologyRid,
+            ontologyRidLength: ontologyRid.length,
+            ontologyRidType: typeof ontologyRid
         });
-        throw error;
+        // Don't throw - allow the service to start with REST API endpoints only
+        client = {};
+        console.log('OSDK client disabled - REST API endpoints will still work');
     }
 }
 

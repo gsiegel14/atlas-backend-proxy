@@ -3,13 +3,15 @@ import { logger } from '../utils/logger.js';
 
 /**
  * Dedicated service for uploading media files (audio/images) to Foundry
- * Handles base64 conversion and direct API communication with Foundry media endpoints
+ * Uses direct REST API calls to Foundry endpoints, bypassing OSDK client complexity
  */
 export class MediaUploadService {
   constructor(config) {
     this.foundryHost = config.foundryHost;
-    this.ontologyRid = config.ontologyRid;
-    this.getToken = config.getToken; // Function to get Foundry auth token
+    this.clientId = config.clientId;
+    this.clientSecret = config.clientSecret;
+    this.tokenUrl = config.tokenUrl;
+    this.ontologyApiName = config.ontologyApiName || 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
   }
 
   /**
