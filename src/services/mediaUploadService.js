@@ -115,7 +115,7 @@ export class MediaUploadService {
         'grant_type': 'client_credentials',
         'client_id': this.clientId,
         'client_secret': this.clientSecret,
-        'scope': 'api:ontologies-read api:ontologies-write'
+        'scope': 'api:ontologies-read api:ontologies-write api:usage:mediasets-write'
       })
     });
 
