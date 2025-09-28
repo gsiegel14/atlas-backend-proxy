@@ -2373,14 +2373,19 @@ router.post('/media/upload', validateTokenWithScopes(['execute:actions']), async
     logger.info('Media upload successful', {
       userId: req.user?.sub,
       filename,
-      mediaType
+      mediaType,
+      hasMediaReference: !!result.reference
     });
 
+    // Return the media reference for use in create actions
+    // For audio: use this result in the intraencounter create action
     res.json({
       success: true,
       filename,
       mediaType,
-      result
+      result,
+      // Include the media reference in a clear format
+      mediaReference: result.reference || result
     });
 
   } catch (error) {
