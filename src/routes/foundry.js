@@ -105,8 +105,11 @@ function normalizeClinicalNoteEntry(entry) {
     || base.encounterId
     || base.encounter_id;
 
+  // IMPORTANT: Start with ALL properties from Foundry to preserve rich FHIR data
+  // (procedures, diagnoses, medications, allergies, labs, etc.)
   const normalized = { ...properties };
 
+  // Then add/override normalized fields
   if (resolvedNoteId) {
     normalized.noteId = resolvedNoteId;
     if (!normalized.id) {
