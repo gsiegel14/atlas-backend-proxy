@@ -115,6 +115,13 @@ app.use(errorHandler);
 
 // 404 handler
 app.use('*', (req, res) => {
+  // Redirect bare media item RID requests to the proper media content route
+  const path = String(req.originalUrl || req.url || '');
+  const mediaRidMatch = path.match(/^\/ri\.mio\.main\.media-item\.[A-Za-z0-9.-_]+$/);
+  if (mediaRidMatch) {
+    const rid = path.replace(/^\//, '');
+    return res.redirect(302, `/api/v1/foundry/media/items/${encodeURIComponent(rid)}/content`);
+  }
   res.status(404).json({
     error: {
       code: 'NOT_FOUND',

@@ -243,6 +243,30 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
         if (page.data.length > 0) {
           const patientProfile = JSON.parse(JSON.stringify(page.data[0]));
           
+          // Enrich profile with media fields (photo processing)
+          const enrichedProfile = foundryService.enrichProfileWithMediaFields({
+            rid: patientProfile.$primaryKey || patientProfile.$rid,
+            properties: patientProfile
+          }, {
+            userId: effectivePatientId,
+            ontologyRid: 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194',
+            objectType: 'A',
+            matchedField: 'user_id'
+          });
+          
+          const enrichedProperties = enrichedProfile.properties || enrichedProfile;
+          
+          // Check if the patient has a profile photo and construct URL
+          let profilePhotoUrl = null;
+          if (enrichedProperties.profilePhotoMediaSetRid && enrichedProperties.profilePhotoMediaItemRid) {
+            profilePhotoUrl = `/api/v1/foundry/media/${enrichedProperties.profilePhotoMediaSetRid}/items/${enrichedProperties.profilePhotoMediaItemRid}/content`;
+            logger.info('Patient has profile photo', {
+              mediaSetRid: enrichedProperties.profilePhotoMediaSetRid,
+              mediaItemRid: enrichedProperties.profilePhotoMediaItemRid,
+              correlationId: req.correlationId
+            });
+          }
+          
           // Merge patient profile data into dashboard response
           dashboardData = {
             ...dashboardData,
@@ -255,7 +279,8 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
               address: patientProfile.address,
               user_id: patientProfile.user_id,
               patientId: patientProfile.patientId || effectivePatientId,
-              ...patientProfile
+              profilePhotoUrl: profilePhotoUrl,
+              ...enrichedProperties
             }
           };
           
@@ -264,6 +289,7 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
             patientId: effectivePatientId,
             hasFirstName: !!patientProfile.firstName,
             hasLastName: !!patientProfile.lastName,
+            hasPhoto: !!profilePhotoUrl,
             correlationId: req.correlationId
           });
         }
@@ -289,6 +315,27 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
         if (restResult.objects && restResult.objects.length > 0) {
           const patientProfile = restResult.objects[0].properties;
           
+          // Enrich profile with media fields (photo processing)
+          const enrichedProfile = foundryService.enrichProfileWithMediaFields(restResult.objects[0], {
+            userId: effectivePatientId,
+            ontologyRid: 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194',
+            objectType: 'A',
+            matchedField: 'user_id'
+          });
+          
+          const enrichedProperties = enrichedProfile.properties || enrichedProfile;
+          
+          // Check if the patient has a profile photo and construct URL
+          let profilePhotoUrl = null;
+          if (enrichedProperties.profilePhotoMediaSetRid && enrichedProperties.profilePhotoMediaItemRid) {
+            profilePhotoUrl = `/api/v1/foundry/media/${enrichedProperties.profilePhotoMediaSetRid}/items/${enrichedProperties.profilePhotoMediaItemRid}/content`;
+            logger.info('Patient has profile photo', {
+              mediaSetRid: enrichedProperties.profilePhotoMediaSetRid,
+              mediaItemRid: enrichedProperties.profilePhotoMediaItemRid,
+              correlationId: req.correlationId
+            });
+          }
+          
           // Merge patient profile data into dashboard response
           dashboardData = {
             ...dashboardData,
@@ -301,7 +348,8 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
               address: patientProfile.address,
               user_id: patientProfile.user_id,
               patientId: patientProfile.patientId || effectivePatientId,
-              ...patientProfile
+              profilePhotoUrl: profilePhotoUrl,
+              ...enrichedProperties
             }
           };
           
@@ -310,6 +358,7 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
             patientId: effectivePatientId,
             hasFirstName: !!patientProfile.firstName,
             hasLastName: !!patientProfile.lastName,
+            hasPhoto: !!profilePhotoUrl,
             correlationId: req.correlationId
           });
         }

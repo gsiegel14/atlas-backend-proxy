@@ -1,4 +1,5 @@
 import express from 'express';
+import fetch from 'node-fetch';
 import { validateTokenWithScopes } from '../middleware/auth0.js';
 import { FoundryService } from '../services/foundryService.js';
 import { MediaUploadService } from '../services/mediaUploadService.js';
@@ -2399,35 +2400,77 @@ router.post('/ontologies/:ontologyId/actions/:actionId/apply', validateTokenWith
 router.get('/media/items/:mediaItemRid/content', validateTokenWithScopes(['read:patient']), async (req, res, next) => {
   try {
     const { mediaItemRid } = req.params;
-    
-    logger.info('Fetching media content from Foundry', {
+
+    logger.info('Fetching media content from Foundry (with mediaset fallback)', {
       mediaItemRid,
       userId: req.user?.sub,
       correlationId: req.correlationId
     });
 
-    // Get Foundry token for service-to-service auth
+    // Prepare Foundry auth
     const foundryService = new FoundryService({
-      host: osdkHost,
+      host: process.env.FOUNDRY_HOST,
       clientId: process.env.FOUNDRY_CLIENT_ID,
       clientSecret: process.env.FOUNDRY_CLIENT_SECRET,
       tokenUrl: process.env.FOUNDRY_OAUTH_TOKEN_URL,
       ontologyRid: osdkOntologyRid
     });
+    const token = await foundryService.getToken();
 
-    // Build the Foundry media content endpoint (path only, not full URL)
-    const mediaEndpoint = `/api/v2/media/${mediaItemRid}/content`;
-    
-    // Fetch the media content from Foundry
-    const response = await foundryService.apiCall('GET', mediaEndpoint);
-    
-    // Forward the content with appropriate headers
-    res.set({
-      'Content-Type': response.headers['content-type'] || 'application/octet-stream',
-      'Cache-Control': 'private, max-age=3600'
+    const host = process.env.FOUNDRY_HOST;
+    const audioMediaSetRid = process.env.FOUNDRY_AUDIO_MEDIA_SET_RID;
+    const medicationsMediaSetRid = process.env.FOUNDRY_MEDICATIONS_MEDIA_SET_RID;
+
+    const candidates = [];
+    if (audioMediaSetRid) {
+      candidates.push(`${host}/api/v2/mediasets/${audioMediaSetRid}/items/${encodeURIComponent(mediaItemRid)}/content?preview=true`);
+    }
+    if (medicationsMediaSetRid) {
+      candidates.push(`${host}/api/v2/mediasets/${medicationsMediaSetRid}/items/${encodeURIComponent(mediaItemRid)}/content?preview=true`);
+    }
+    // Fallback to generic media endpoint
+    candidates.push(`${host}/api/v2/media/${encodeURIComponent(mediaItemRid)}/content`);
+
+    let lastStatus = 0;
+    for (const url of candidates) {
+      try {
+        const upstream = await fetch(url, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        lastStatus = upstream.status;
+        if (upstream.ok) {
+          const contentType = upstream.headers.get('content-type') || 'application/octet-stream';
+          const arrayBuffer = await upstream.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          res.set({
+            'Content-Type': contentType,
+            'Cache-Control': 'private, max-age=3600'
+          });
+          return res.send(buffer);
+        }
+        // Try next candidate on 404; surface other statuses
+        if (upstream.status !== 404) {
+          const text = await upstream.text();
+          const err = new Error(`Upstream failed: ${upstream.status} - ${text}`);
+          err.status = upstream.status;
+          throw err;
+        }
+      } catch (inner) {
+        // Non-404 errors should bubble up
+        if (inner.status && inner.status !== 404) {
+          throw inner;
+        }
+      }
+    }
+
+    // If we got here, all candidates failed with 404
+    return res.status(404).json({
+      error: 'Media item not found',
+      message: `The media item '${mediaItemRid}' was not found in configured mediasets`,
+      lastStatus,
+      correlationId: req.correlationId
     });
-    
-    res.send(response.data);
 
   } catch (error) {
     logger.error('Error fetching media content:', {
@@ -2437,15 +2480,6 @@ router.get('/media/items/:mediaItemRid/content', validateTokenWithScopes(['read:
       userId: req.user?.sub,
       correlationId: req.correlationId
     });
-    
-    if (error.status === 404) {
-      return res.status(404).json({
-        error: 'Media item not found',
-        message: `The media item '${req.params.mediaItemRid}' was not found in Foundry`,
-        correlationId: req.correlationId
-      });
-    }
-    
     next(error);
   }
 });
