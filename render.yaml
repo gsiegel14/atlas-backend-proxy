@@ -61,6 +61,7 @@ services:
         sync: false
       - key: FOUNDRY_TOKEN
         sync: false
+        # Used for patient profile ontology operations (edit-a action)
     disk:
       name: atlas-backend-proxy-disk
       mountPath: /opt/render/project/logs

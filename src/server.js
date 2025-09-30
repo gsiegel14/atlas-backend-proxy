@@ -28,6 +28,7 @@ import fastenDatasetsRouter from './routes/fastenDatasets.js';
 import fastenIngestionRouter from './routes/fastenIngestion.js';
 import { transcriptionSummaryRouter } from './routes/transcriptionSummary.js';
 import { usernamePropagation } from './middleware/usernamePropagation.js';
+import patientProfileRouter from './routes/patient-profile.js';
 
 dotenv.config();
 
@@ -99,6 +100,7 @@ app.use('/api/v1/debug', debugRouter);
 
 // API Routes with specific rate limits
 app.use('/api/v1/patient', createRateLimiter(100, redisClient), patientRouter);
+app.use('/api/v1/patient-profile', createRateLimiter(50, redisClient), patientProfileRouter);
 app.use('/api/v1/foundry', createRateLimiter(50, redisClient), foundryRouter);
 app.use('/api/v1/medications', createRateLimiter(50, redisClient), medicationsRouter);
 app.use('/api/v1/history', createRateLimiter(50, redisClient), historyRouter);

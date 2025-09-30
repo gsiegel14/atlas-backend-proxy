@@ -90,13 +90,15 @@ function normalizeClinicalNoteEntry(entry) {
     || base.state;
 
   const resolvedNoteText = properties.noteText
+    || properties.rawContent
     || properties.text
     || properties.content
     || properties.body
     || properties.cleanText
-    || properties.rawContent
     || base.noteText
+    || base.rawContent
     || base.text
+    || base.content
     || base.body;
 
   const resolvedEncounterId = properties.encounterId
