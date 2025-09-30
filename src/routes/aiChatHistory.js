@@ -13,7 +13,7 @@ const aiChatHistoryService = new AiChatHistoryService();
  * Fetch AI Chat History Production objects using the new OSDK v2 client pattern
  */
 router.get('/v2/ontologies/:ontologyId/objects/AiChatHistoryProduction', 
-  validateTokenWithScopes(['read:chat-history']), 
+  validateTokenWithScopes(['execute:actions']), 
   async (req, res, next) => {
     try {
       const { ontologyId } = req.params;
@@ -82,7 +82,7 @@ router.get('/v2/ontologies/:ontologyId/objects/AiChatHistoryProduction',
  * Search AI Chat History Production objects with filters
  */
 router.post('/v2/ontologies/:ontologyId/objects/AiChatHistoryProduction/search',
-  validateTokenWithScopes(['read:chat-history']),
+  validateTokenWithScopes(['execute:actions']),
   async (req, res, next) => {
     try {
       const { ontologyId } = req.params;
@@ -169,7 +169,7 @@ router.post('/v2/ontologies/:ontologyId/objects/AiChatHistoryProduction/search',
  * Get chat history for a specific user (convenience endpoint)
  */
 router.get('/user/:userId/chat-history',
-  validateTokenWithScopes(['read:chat-history']),
+  validateTokenWithScopes(['execute:actions']),
   async (req, res, next) => {
     try {
       const { userId } = req.params;
