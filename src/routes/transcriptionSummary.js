@@ -48,17 +48,35 @@ router.post('/transcription-summary', validateTokenWithScopes(['execute:queries'
       rawTranscript: rawTranscript.trim()
     });
     
-    // Parse result (Foundry returns string)
+    // Parse result - Foundry query may return JSON string or object
     let summary = '';
+    
     if (typeof result === 'string') {
-      summary = result.trim();
+      // Try to parse as JSON first (Foundry often returns JSON-encoded strings)
+      try {
+        const parsed = JSON.parse(result);
+        if (typeof parsed === 'object' && parsed.value) {
+          summary = parsed.value;
+        } else if (typeof parsed === 'string') {
+          summary = parsed;
+        } else {
+          summary = result; // Use original string if parsing doesn't help
+        }
+      } catch {
+        // Not JSON, use as-is
+        summary = result.trim();
+      }
     } else if (result && typeof result === 'object') {
-      summary = result.summary || result.result || result.data || JSON.stringify(result);
+      // Handle object response
+      summary = result.value || result.summary || result.result || result.data || JSON.stringify(result);
     }
     
-    if (!summary) {
+    if (!summary || !summary.trim()) {
       throw new Error('No summary returned from Foundry query');
     }
+    
+    // Clean up: ensure proper formatting
+    summary = summary.trim();
     
     logger.info('Transcription summary generated successfully', {
       auth0Id,
