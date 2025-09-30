@@ -12,6 +12,9 @@ export class MediaUploadService {
     this.clientSecret = config.clientSecret;
     this.tokenUrl = config.tokenUrl;
     this.ontologyApiName = config.ontologyApiName || 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+    this.intraencounterActionId = config.intraencounterActionId
+      || process.env.FOUNDRY_INTRAENCOUNTER_ACTION_ID
+      || 'createAtlasIntraencounterProduction';
     this.audioMediaSetRid = config.audioMediaSetRid || process.env.FOUNDRY_AUDIO_MEDIA_SET_RID || 'ri.mio.main.media-set.774ed489-e6ba-4f75-abd3-784080d7cfb3';
     this.medicationsMediaSetRid = config.medicationsMediaSetRid || process.env.FOUNDRY_MEDICATIONS_MEDIA_SET_RID || 'ri.mio.main.media-set.6b57b513-6e54-4f04-b779-2a3a3f9753c8';
   }
@@ -150,19 +153,6 @@ export class MediaUploadService {
   async createIntraencounterProduction(params) {
     // Get authentication token via direct REST API
     const token = await this.getFoundryToken();
-    
-    // Build the Foundry action URL
-    const actionUrl = `${this.foundryHost}/api/v2/ontologies/${this.ontologyApiName}/actions/create-atlas-intraencounter-production/apply`;
-    
-    logger.info('MediaUploadService: Creating intraencounter via Foundry action', {
-      actionUrl,
-      ontologyApiName: this.ontologyApiName,
-      userId: params.user_id,
-      hasAudiofile: !!params.audiofile,
-      hasTranscript: !!params.transcript,
-      audiofileFormat: typeof params.audiofile,
-      audiofileKeys: params.audiofile ? Object.keys(params.audiofile) : []
-    });
 
     const requestBody = {
       parameters: {
@@ -173,7 +163,8 @@ export class MediaUploadService {
         location: params.location || '',
         provider_name: params.provider_name || '',
         speciality: params.speciality || '',
-        hospital: params.hospital || ''
+        hospital: params.hospital || '',
+        llm_summary: params.llm_summary || ''
       },
       options: {
         mode: "VALIDATE_AND_EXECUTE",
@@ -181,36 +172,88 @@ export class MediaUploadService {
       }
     };
 
-    const actionResponse = await fetch(actionUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(requestBody)
-    });
+    const actionIdCandidates = this.buildActionIdVariants(this.intraencounterActionId);
+    let lastError = null;
 
-    if (!actionResponse.ok) {
-      const errorText = await actionResponse.text();
-      logger.error('MediaUploadService: Foundry action failed', {
-        status: actionResponse.status,
-        error: errorText,
+    for (const candidate of actionIdCandidates) {
+      const actionUrl = `${this.foundryHost}/api/v2/ontologies/${this.ontologyApiName}/actions/${candidate}/apply`;
+
+      logger.info('MediaUploadService: Creating intraencounter via Foundry action', {
         actionUrl,
+        actionId: candidate,
+        ontologyApiName: this.ontologyApiName,
         userId: params.user_id,
-        requestBody: JSON.stringify(requestBody, null, 2)
+        hasAudiofile: !!params.audiofile,
+        hasTranscript: !!params.transcript,
+        audiofileFormat: typeof params.audiofile,
+        audiofileKeys: params.audiofile ? Object.keys(params.audiofile) : []
       });
-      throw new Error(`Foundry action failed: ${actionResponse.status} - ${errorText}`);
+
+      try {
+        const actionResponse = await fetch(actionUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(requestBody)
+        });
+
+        if (!actionResponse.ok) {
+          const errorText = await actionResponse.text();
+          logger.warn('MediaUploadService: Foundry action attempt failed', {
+            status: actionResponse.status,
+            error: errorText,
+            actionUrl,
+            actionId: candidate,
+            userId: params.user_id
+          });
+
+          const error = new Error(`Foundry action failed: ${actionResponse.status} - ${errorText}`);
+          error.status = actionResponse.status;
+          error.foundryError = errorText;
+          error.actionId = candidate;
+          error.actionUrl = actionUrl;
+          lastError = error;
+          continue;
+        }
+
+        const result = await actionResponse.json();
+
+        logger.info('MediaUploadService: Foundry action successful', {
+          ontologyApiName: this.ontologyApiName,
+          userId: params.user_id,
+          actionId: candidate,
+          hasResult: !!result
+        });
+
+        return result;
+      } catch (error) {
+        logger.error('MediaUploadService: Foundry action request error', {
+          error: error.message,
+          actionUrl,
+          actionId: candidate,
+          userId: params.user_id
+        });
+        lastError = error;
+      }
     }
 
-    const result = await actionResponse.json();
-    
-    logger.info('MediaUploadService: Foundry action successful', {
-      ontologyApiName: this.ontologyApiName,
-      userId: params.user_id,
-      hasResult: !!result
-    });
+    if (lastError) {
+      throw lastError;
+    }
 
-    return result;
+    throw new Error('Foundry action failed: no valid actionId candidates resolved');
+  }
+
+  buildActionIdVariants(actionId) {
+    const fallback = (actionId || '').trim() || 'createAtlasIntraencounterProduction';
+    const variants = new Set();
+    variants.add(fallback);
+    variants.add(fallback.replace(/_/g, '-'));
+    variants.add(fallback.replace(/-([a-z])/g, (_, char) => char.toUpperCase()));
+    variants.add(fallback.replace(/([A-Z])/g, '-$1').replace(/^-/, '').toLowerCase());
+    return Array.from(variants).filter(Boolean);
   }
 
   /**
