@@ -29,6 +29,7 @@ import fastenIngestionRouter from './routes/fastenIngestion.js';
 import { transcriptionSummaryRouter } from './routes/transcriptionSummary.js';
 import { usernamePropagation } from './middleware/usernamePropagation.js';
 import patientProfileRouter from './routes/patient-profile.js';
+import aiChatHistoryRouter from './routes/aiChatHistory.js';
 
 dotenv.config();
 
@@ -94,6 +95,10 @@ app.use('/debug/public', publicDebugRouter);
 
 // Auth0 validation for protected routes
 app.use('/api', validateAuth0Token, usernamePropagation);
+
+// AI Chat History routes (OSDK-style paths at root level)
+// Must come before the /api routes to match /v2/ontologies/... paths
+app.use('/', validateAuth0Token, usernamePropagation, createRateLimiter(50, redisClient), aiChatHistoryRouter);
 
 // Debug endpoints (protected)
 app.use('/api/v1/debug', debugRouter);
