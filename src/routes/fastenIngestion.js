@@ -153,22 +153,25 @@ router.post('/ingest', validateServiceAuth, async (req, res, next) => {
     
     const { access_token } = await tokenResponse.json();
     
-    // Format records as a single JSON object with top-level "data" array
-    // This matches the format in gabe_chart.json
-    const jsonDataArray = records.map(record => {
-      return {
-        auth0_user_id: auth0_user_id || record.auth0_user_id || '',
-        org_connection_id: record.org_connection_id || metadata?.org_connection_id || '',
-        ingested_at: record.ingested_at || new Date().toISOString(),
-        fhir_resource: record.fhir_resource || record  // Complete FHIR resource preserved
-      };
-    });
-    const jsonPayload = { data: jsonDataArray };
-    const jsonContent = JSON.stringify(jsonPayload, null, 2);  // Pretty print for readability
+    // Format records as JSONL (newline-delimited JSON) for Foundry-friendly ingestion
+    // Keep fhir_resource as a STRING by stringifying the object to avoid unsupported JSON types
+    const jsonlContent = records
+      .map((record) => {
+        const lineObject = {
+          auth0_user_id: auth0_user_id || record.auth0_user_id || '',
+          org_connection_id:
+            record.org_connection_id || metadata?.org_connection_id || '',
+          ingested_at: record.ingested_at || new Date().toISOString(),
+          // Store complete FHIR resource as JSON string
+          fhir_resource: JSON.stringify(record.fhir_resource || record)
+        };
+        return JSON.stringify(lineObject);
+      })
+      .join('\n');
     
     // Generate filename with timestamp
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const fileName = `fasten-fhir/${auth0_user_id}/${timestamp}.json`;
+    const fileName = `fasten-fhir/${auth0_user_id}/${timestamp}.jsonl`;
     
     // Upload file directly to Foundry dataset using Datasets API v2
     const uploadUrl = `${process.env.FOUNDRY_HOST}/api/v2/datasets/${FASTEN_FHIR_DATASET_RID}/files/${encodeURIComponent(fileName)}/upload?transactionType=APPEND`;
@@ -177,9 +180,9 @@ router.post('/ingest', validateServiceAuth, async (req, res, next) => {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${access_token}`,
-        'Content-Type': 'application/json'  // Correct content type for JSON data
+        'Content-Type': 'application/x-ndjson' // JSON Lines content type
       },
-      body: jsonContent
+      body: jsonlContent
     });
     
     if (!uploadResponse.ok) {
