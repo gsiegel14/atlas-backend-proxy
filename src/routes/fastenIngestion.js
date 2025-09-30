@@ -154,15 +154,17 @@ router.post('/ingest', validateServiceAuth, async (req, res, next) => {
     const { access_token } = await tokenResponse.json();
     
     // Format records as a single JSON object with top-level "data" array
+    // This matches the format in gabe_chart.json
     const jsonDataArray = records.map(record => {
       return {
         auth0_user_id: auth0_user_id || record.auth0_user_id || '',
         org_connection_id: record.org_connection_id || metadata?.org_connection_id || '',
         ingested_at: record.ingested_at || new Date().toISOString(),
-        fhir_resource: record.fhir_resource || record
+        fhir_resource: record.fhir_resource || record  // Complete FHIR resource preserved
       };
     });
-    const jsonContent = JSON.stringify({ data: jsonDataArray });
+    const jsonPayload = { data: jsonDataArray };
+    const jsonContent = JSON.stringify(jsonPayload, null, 2);  // Pretty print for readability
     
     // Generate filename with timestamp
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -175,7 +177,7 @@ router.post('/ingest', validateServiceAuth, async (req, res, next) => {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${access_token}`,
-        'Content-Type': 'application/octet-stream'
+        'Content-Type': 'application/json'  // Correct content type for JSON data
       },
       body: jsonContent
     });
