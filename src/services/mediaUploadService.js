@@ -154,16 +154,22 @@ export class MediaUploadService {
     // Get authentication token via direct REST API
     const token = await this.getFoundryToken();
 
-    // Extract RID from MediaReference if it's an object
-    const audiofileRid = typeof params.audiofile === 'object' && params.audiofile?.$rid
-      ? params.audiofile.$rid
-      : params.audiofile;
+    // Foundry MediaReference format: keep the object structure but ensure it has the right shape
+    // MediaReference should be { __rid: "..." } not { $rid: "..." }
+    let audiofileRef = params.audiofile;
+    if (typeof params.audiofile === 'object' && params.audiofile?.$rid) {
+      // Convert {$rid: "..."} to {__rid: "..."}
+      audiofileRef = { __rid: params.audiofile.$rid };
+    } else if (typeof params.audiofile === 'string') {
+      // Convert plain string to {__rid: "..."}
+      audiofileRef = { __rid: params.audiofile };
+    }
 
     const requestBody = {
       parameters: {
         timestamp: params.timestamp || new Date().toISOString(),
         user_id: params.user_id,
-        audiofile: audiofileRid, // Send RID string directly, not JSON object
+        audiofile: audiofileRef, // MediaReference as {__rid: "..."} object
         transcript: params.transcript,
         location: params.location || '',
         provider_name: params.provider_name || '',
