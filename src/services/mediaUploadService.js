@@ -154,11 +154,16 @@ export class MediaUploadService {
     // Get authentication token via direct REST API
     const token = await this.getFoundryToken();
 
+    // Extract RID from MediaReference if it's an object
+    const audiofileRid = typeof params.audiofile === 'object' && params.audiofile?.$rid
+      ? params.audiofile.$rid
+      : params.audiofile;
+
     const requestBody = {
       parameters: {
         timestamp: params.timestamp || new Date().toISOString(),
         user_id: params.user_id,
-        audiofile: params.audiofile,
+        audiofile: audiofileRid, // Send RID string directly, not JSON object
         transcript: params.transcript,
         location: params.location || '',
         provider_name: params.provider_name || '',
