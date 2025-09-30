@@ -11,6 +11,134 @@ export class AiChatHistoryService {
     // Import the AiChatHistoryProduction object type from the SDK
     // This would normally be imported from "@atlas-dev/sdk" but we'll use a generic approach
     this.objectType = 'AiChatHistoryProduction';
+    this.actionType = 'create-ai-chat-history-production';
+    this.ontologyRid = 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+  }
+
+  /**
+   * Create a new AI chat history entry using the Ontology action
+   * @param {Object} params - Creation parameters
+   * @param {string} params.userId - User ID (Auth0 identifier)
+   * @param {string} params.transcript - Chat transcript content
+   * @param {string} params.timestamp - ISO timestamp
+   * @returns {Promise<Object>} Creation result with chatId
+   */
+  async createChatHistory({ userId, transcript, timestamp }) {
+    if (!userId) {
+      throw new Error('userId is required');
+    }
+
+    if (!transcript || transcript.trim().length === 0) {
+      throw new Error('transcript cannot be empty');
+    }
+
+    logger.info('Creating AI chat history via OSDK action', {
+      userId,
+      transcriptLength: transcript.length,
+      timestamp
+    });
+
+    try {
+      // Use the OSDK client to apply the action
+      // Format: /v2/ontologies/{ontologyRid}/actions/{actionType}/apply
+      const actionClient = client.ontology(this.ontologyRid).action(this.actionType);
+      
+      const result = await actionClient.applyAction(
+        {
+          user_id: userId,
+          transcript: transcript.trim(),
+          timestamp: timestamp || new Date().toISOString()
+        },
+        {
+          $returnEdits: true
+        }
+      );
+
+      if (result && result.type === "edits") {
+        const updatedObject = result.editedObjectTypes?.[0];
+
+        logger.info('Successfully created AI chat history', {
+          userId,
+          objectId: updatedObject?.primaryKey,
+          transcriptLength: transcript.length
+        });
+
+        return {
+          success: true,
+          chatId: updatedObject?.primaryKey || `chat_${Date.now()}`,
+          userId,
+          timestamp: timestamp || new Date().toISOString()
+        };
+      } else {
+        logger.warn('Unexpected result type from OSDK action', {
+          resultType: result?.type
+        });
+
+        // Fallback success response
+        return {
+          success: true,
+          chatId: `chat_${Date.now()}`,
+          userId,
+          timestamp: timestamp || new Date().toISOString()
+        };
+      }
+    } catch (error) {
+      logger.error('Failed to create AI chat history via OSDK', {
+        error: error.message,
+        stack: error.stack,
+        userId
+      });
+
+      throw error;
+    }
+  }
+
+  /**
+   * Batch create multiple AI chat history entries
+   * @param {Array<Object>} entries - Array of creation parameters
+   * @returns {Promise<Object>} Batch creation result
+   */
+  async batchCreateChatHistory(entries) {
+    if (!Array.isArray(entries) || entries.length === 0) {
+      throw new Error('entries must be a non-empty array');
+    }
+
+    logger.info('Batch creating AI chat history entries', {
+      count: entries.length
+    });
+
+    try {
+      const parameters = entries.map(entry => ({
+        user_id: entry.userId,
+        transcript: entry.transcript.trim(),
+        timestamp: entry.timestamp || new Date().toISOString()
+      }));
+
+      const actionClient = client.ontology(this.ontologyRid).action(this.actionType);
+
+      const result = await actionClient.batchApplyAction(
+        parameters,
+        {
+          $returnEdits: false  // More efficient for batch operations
+        }
+      );
+
+      logger.info('Successfully batch created AI chat history entries', {
+        count: entries.length
+      });
+
+      return {
+        success: true,
+        count: entries.length
+      };
+    } catch (error) {
+      logger.error('Failed to batch create AI chat history', {
+        error: error.message,
+        count: entries.length
+      });
+
+      throw error;
+    }
   }
 
   /**

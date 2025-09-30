@@ -1,10 +1,12 @@
 import express from 'express';
 import { validateTokenWithScopes } from '../middleware/auth0.js';
 import { FoundryService } from '../services/foundryService.js';
+import { AiChatHistoryService } from '../services/aiChatHistoryService.js';
 import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
+// Legacy FoundryService for backward compatibility
 const foundryService = new FoundryService({
   host: process.env.FOUNDRY_HOST,
   clientId: process.env.FOUNDRY_CLIENT_ID,
@@ -13,6 +15,9 @@ const foundryService = new FoundryService({
   ontologyRid: process.env.FOUNDRY_ONTOLOGY_RID,
   chatHistoryActionId: process.env.FOUNDRY_CHAT_HISTORY_ACTION_ID
 });
+
+// New OSDK-based service for direct action invocation
+const aiChatHistoryService = new AiChatHistoryService();
 
 function resolveUsername(req) {
   if (typeof req.context?.username === 'string' && req.context.username.trim().length > 0) {
@@ -82,18 +87,17 @@ router.post('/chat', validateTokenWithScopes(['execute:actions']), async (req, r
       : {};
     const options = req.body?.options && typeof req.body.options === 'object' ? req.body.options : {};
 
-    logger.info('Creating AI chat history entry via backend proxy', {
+    logger.info('Creating AI chat history entry via OSDK action', {
       userId: finalUserId,
       transcriptLength: transcript.length,
       correlationId: req.correlationId
     });
 
-    const result = await foundryService.createChatHistoryEntry({
+    // Use direct OSDK action instead of legacy FoundryService
+    const result = await aiChatHistoryService.createChatHistory({
       userId: finalUserId,
       transcript,
-      timestamp: timestampIso,
-      additionalParameters,
-      options
+      timestamp: timestampIso
     });
 
     res.status(201).json({
