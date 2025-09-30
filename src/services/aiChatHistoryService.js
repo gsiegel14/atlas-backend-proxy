@@ -348,7 +348,7 @@ export class AiChatHistoryService {
   }
 
   /**
-   * Search AI chat history by user ID
+   * Search AI chat history by user ID using OSDK where clause
    * @param {string} userId - User ID to search for
    * @param {Object} options - Query options
    * @returns {Promise<Object[]>} Chat history entries for the user
@@ -358,32 +358,54 @@ export class AiChatHistoryService {
       throw new Error('userId is required');
     }
 
+    const {
+      pageSize = 30,
+      select,
+      includeRid = false
+    } = options;
+
     try {
-      logger.info('Searching AI chat history by user ID', {
+      logger.info('Searching AI chat history by user ID via OSDK where clause', {
         userId,
-        options
+        pageSize,
+        select,
+        includeRid
       });
 
-      // For now, we'll fetch all entries and filter
-      // In a real implementation, you would use the search API with filters
-      const allEntries = await this.fetchMultiplePages(options);
+      // Use OSDK where clause for efficient server-side filtering
+      const objectSetClient = client.ontology(this.ontologyRid)
+                                   .objects(this.objectType);
 
-      // Filter by user ID (assuming there's a userId field)
-      const userEntries = allEntries.filter(entry => 
-        entry.userId === userId || 
-        entry.user_id === userId ||
-        entry.properties?.userId === userId ||
-        entry.properties?.user_id === userId
-      );
+      // Build the query with where clause
+      const queryParams = {
+        $where: {
+          userId: { $eq: userId }
+        },
+        $pageSize: pageSize,
+        $orderBy: {
+          timestamp: 'desc'  // Most recent first
+        }
+      };
 
-      logger.info('Found AI chat history entries for user', {
+      if (select && select.length > 0) {
+        queryParams.$select = select;
+      }
+
+      if (includeRid) {
+        queryParams.$includeRid = true;
+      }
+
+      // Execute the search query
+      const result = await objectSetClient.fetchPage(queryParams);
+
+      logger.info('Found AI chat history entries for user via OSDK', {
         userId,
-        entryCount: userEntries.length
+        entryCount: result.data?.length || 0
       });
 
-      return userEntries;
+      return result.data || [];
     } catch (error) {
-      logger.error('Error searching AI chat history by user ID', {
+      logger.error('Error searching AI chat history by user ID via OSDK', {
         userId,
         error: error.message,
         stack: error.stack
