@@ -1,6 +1,7 @@
-import { client, AtlasIntraencounterProduction, osdkOntologyRid } from '../osdk/client.js';
+import { client, AtlasIntraencounterProduction, osdkOntologyRid, osdkHost } from '../osdk/client.js';
 import { logger } from '../utils/logger.js';
 import { isOk } from '@osdk/client';
+import { createConfidentialOauthClient } from '@osdk/oauth';
 
 /**
  * Service wrapper around the AtlasIntraencounterProduction object type.
@@ -241,6 +242,90 @@ export class AtlasIntraencounterService {
       }
     }
     return entry;
+  }
+
+  /**
+   * REST API fallback for searching by userId
+   */
+  async searchByUserIdViaREST(userId, options = {}) {
+    const {
+      pageSize = 30,
+      select,
+      includeRid = false
+    } = options;
+
+    try {
+      const tokenProvider = createConfidentialOauthClient(
+        process.env.FOUNDRY_CLIENT_ID,
+        process.env.FOUNDRY_CLIENT_SECRET,
+        osdkHost,
+        ['api:use-ontologies-read']
+      );
+      
+      const token = await tokenProvider();
+      const searchUrl = `${osdkHost}/api/v2/ontologies/${osdkOntologyRid}/objects/AtlasIntraencounterProduction/search`;
+      
+      const searchPayload = {
+        where: {
+          type: 'eq',
+          field: 'userId',
+          value: userId
+        },
+        orderBy: {
+          fields: [{ field: 'timestamp', direction: 'desc' }]
+        },
+        pageSize: pageSize
+      };
+
+      if (select && select.length > 0) {
+        searchPayload.select = select;
+      }
+
+      if (includeRid) {
+        searchPayload.includeRid = includeRid;
+      }
+      
+      logger.info('REST API intra-encounter search attempt', {
+        searchUrl,
+        userId,
+        pageSize,
+        includeRid
+      });
+      
+      const response = await fetch(searchUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(searchPayload)
+      });
+      
+      if (!response.ok) {
+        logger.warn('REST API search failed', {
+          status: response.status,
+          statusText: response.statusText,
+          userId
+        });
+        throw new Error(`REST API returned ${response.status}: ${response.statusText}`);
+      }
+      
+      const searchResult = await response.json();
+      
+      logger.info('REST API intra-encounter search success', {
+        userId,
+        count: searchResult.data?.length || 0
+      });
+      
+      return this._normalize(searchResult.data || []);
+      
+    } catch (error) {
+      logger.error('REST API intra-encounter search failed', {
+        error: error.message,
+        userId
+      });
+      throw error;
+    }
   }
 }
 
