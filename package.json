@@ -11,6 +11,7 @@
     "test:watch": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --watch",
     "test:coverage": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --coverage",
     "build": "echo 'No build step required'",
+    "preinstall": "bash scripts/prebuild-check.sh || true",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix"
   },
@@ -34,9 +35,6 @@
     "redis": "^4.6.10",
     "uuid": "^9.0.1",
     "winston": "^3.11.0"
-  },
-  "optionalDependencies": {
-    "@atlas-dev/sdk": "^0.13.0"
   },
   "devDependencies": {
     "eslint": "^8.55.0",
