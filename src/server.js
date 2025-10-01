@@ -94,6 +94,16 @@ app.use(correlationId);
 const globalRateLimit = createRateLimiter(1000, redisClient); // 1000 requests per minute
 app.use(globalRateLimit);
 
+// Root endpoint (no auth required) - for Render health checks
+app.get('/', (req, res) => {
+  res.status(200).json({
+    service: 'atlas-backend-proxy',
+    status: 'running',
+    version: '1.0.0',
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Health check (no auth required)
 app.use('/health', healthRouter);
 // Public debug (no auth required) — safe metadata only
