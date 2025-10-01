@@ -33,6 +33,7 @@ import { usernamePropagation } from './middleware/usernamePropagation.js';
 import patientProfileRouter from './routes/patient-profile.js';
 import aiChatHistoryRouter from './routes/aiChatHistory.js';
 import atlasIntraencounterHistoryRouter from './routes/atlasIntraencounterHistory.js';
+import arcExplainsRouter from './routes/arcExplains.js';
 
 dotenv.config();
 
@@ -131,6 +132,7 @@ app.use('/api/v1/patient-profile', createRateLimiter(100, redisClient), patientP
 // Increased to 300/min for read operations with caching support
 app.use('/api/v1/foundry/datasets', createRateLimiter(100, redisClient), datasetsRouter);
 app.use('/api/v1/foundry/transcription-summary', createRateLimiter(100, redisClient), transcriptionSummaryRouter);
+app.use('/api/v1/foundry/arc-explains', createRateLimiter(60, redisClient), arcExplainsRouter);
 app.use('/api/v1/foundry', createRateLimiter(300, redisClient), foundryRouter); // Consolidated single rate limiter, increased limit
 
 // OSDK test endpoint

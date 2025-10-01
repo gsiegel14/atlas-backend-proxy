@@ -10,9 +10,14 @@ import { EncountersService, DEFAULT_ENCOUNTERS_CACHE_TTL_MS } from '../services/
 import { getCacheService } from '../services/cacheService.js';
 import { mediaCoalescer } from '../utils/requestCoalescer.js';
 import { resolveLlmSummary } from '../utils/transcriptionSummary.js';
+import arcExplainsRouter from './arcExplains.js';
 
 const router = express.Router();
 const cacheService = getCacheService();
+
+// Surface the Arc Explains endpoint via the consolidated Foundry router to avoid 404s if the
+// dedicated registration is missing in certain environments (e.g. legacy deployments).
+router.use('/arc-explains', arcExplainsRouter);
 
 const CLINICAL_NOTES_CACHE_TTL_MS = 30 * 1000;
 const CONDITIONS_CACHE_TTL_MS = 30 * 1000;
