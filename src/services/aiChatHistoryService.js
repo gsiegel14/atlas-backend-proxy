@@ -53,7 +53,8 @@ export class AiChatHistoryService {
     logger.info('Creating AI chat history', {
       userId,
       transcriptLength: transcript.length,
-      timestamp: finalTimestamp
+      timestamp: finalTimestamp,
+      actionType: this.actionType
     });
 
     // Try OSDK first, fallback to REST API
@@ -112,6 +113,7 @@ export class AiChatHistoryService {
 
       logger.info('Successfully created AI chat history via OSDK', {
         userId,
+        actionType: this.actionType,
         objectId: updatedObject?.primaryKey,
         transcriptLength: transcript.length
       });
@@ -158,9 +160,10 @@ export class AiChatHistoryService {
     }
     const actionUrl = `${foundryHost}/api/v2/ontologies/${ontologyRid}/actions/${this.actionType}/apply`;
     
-    logger.info('Making direct REST API call to Foundry', {
+    logger.info('Making direct REST API call to Foundry for AI chat history creation', {
       actionUrl: actionUrl.replace(foundryHost, '[FOUNDRY_HOST]'),
-      userId
+      userId,
+      actionType: this.actionType
     });
 
     const response = await fetch(actionUrl, {

@@ -90,7 +90,9 @@ router.post('/chat', validateTokenWithScopes(['execute:actions']), async (req, r
     logger.info('Creating AI chat history entry via OSDK action', {
       userId: finalUserId,
       transcriptLength: transcript.length,
-      correlationId: req.correlationId
+      correlationId: req.correlationId,
+      endpoint: '/api/v1/history',
+      method: 'POST'
     });
 
     // Use direct OSDK action instead of legacy FoundryService
