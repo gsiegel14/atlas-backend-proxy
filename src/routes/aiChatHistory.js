@@ -130,7 +130,8 @@ router.post('/v2/ontologies/:ontologyId/objects/AiChatHistoryProduction/search',
         });
 
         // Filter out non-existent fields from select if provided
-        const validFields = ['chatId', 'transcript', 'userId', 'timestamp'];
+        // Note: Database uses snake_case (user_id) but we also accept camelCase (userId) for backwards compatibility
+        const validFields = ['chatId', 'transcript', 'userId', 'user_id', 'timestamp'];
         const filteredSelect = select ? select.filter(field => validFields.includes(field)) : undefined;
         
         if (select && filteredSelect) {
@@ -173,7 +174,8 @@ router.post('/v2/ontologies/:ontologyId/objects/AiChatHistoryProduction/search',
         });
 
         // Filter out non-existent fields from select if provided
-        const validFields = ['chatId', 'transcript', 'userId', 'timestamp'];
+        // Note: Database uses snake_case (user_id) but we also accept camelCase (userId) for backwards compatibility
+        const validFields = ['chatId', 'transcript', 'userId', 'user_id', 'timestamp'];
         const filteredSelect = select ? select.filter(field => validFields.includes(field)) : undefined;
         
         if (select && filteredSelect) {

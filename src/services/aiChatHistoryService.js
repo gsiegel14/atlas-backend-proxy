@@ -528,6 +528,7 @@ export class AiChatHistoryService {
         });
 
         // Build the query with where clause (OSDK fetchPage supports server-side filtering)
+        // Note: OSDK uses camelCase property names (userId) even though DB stores as user_id
         const queryParams = {
           $where: {
             userId: { $eq: userId }
@@ -553,6 +554,7 @@ export class AiChatHistoryService {
           }
           
           // Use the typed OSDK v2 pattern: client(TypedObject).where(...).fetchPage()
+          // Note: OSDK uses camelCase property names (userId) even though DB stores as user_id
           const result = await client(AiChatHistoryProduction)
             .where({ userId: { $eq: userId } })
             .fetchPage({
@@ -626,7 +628,7 @@ export class AiChatHistoryService {
 
     const requestBody = {
       where: {
-        field: 'userId',
+        field: 'userId',  // REST API uses camelCase field names
         type: 'eq',
         value: userId
       },
