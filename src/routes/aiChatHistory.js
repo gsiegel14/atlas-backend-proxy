@@ -212,7 +212,7 @@ router.post('/v2/ontologies/:ontologyId/objects/AiChatHistoryProduction/search',
         });
 
         logger.info('Sending AI chat history response to frontend', {
-          userId,
+          userId: where.value,
           resultCount: results.length,
           sampleResult: results[0] ? {
             chatId: results[0].chatId,
