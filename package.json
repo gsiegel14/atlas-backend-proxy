@@ -11,13 +11,11 @@
     "test:watch": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --watch",
     "test:coverage": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --coverage",
     "build": "echo 'No build step required'",
-    "preinstall": "bash scripts/setup-npm-auth.sh || echo 'Auth setup failed'",
-    "install:with-auth": "bash scripts/setup-npm-auth.sh && npm install",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix"
   },
   "dependencies": {
-    "@atlas-dev/sdk": "^0.13.0",
+    "@atlas-dev/sdk": "file:./atlas-dev-sdk-0.13.0.tgz",
     "@osdk/client": "^2.4.2",
     "@osdk/foundry": "^2.32.0",
     "@osdk/oauth": "^1.4.0",
