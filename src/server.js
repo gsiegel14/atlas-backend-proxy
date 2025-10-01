@@ -30,6 +30,7 @@ import { transcriptionSummaryRouter } from './routes/transcriptionSummary.js';
 import { usernamePropagation } from './middleware/usernamePropagation.js';
 import patientProfileRouter from './routes/patient-profile.js';
 import aiChatHistoryRouter from './routes/aiChatHistory.js';
+import atlasIntraencounterHistoryRouter from './routes/atlasIntraencounterHistory.js';
 
 dotenv.config();
 
@@ -99,6 +100,8 @@ app.use('/api', validateAuth0Token, usernamePropagation);
 // AI Chat History routes (OSDK-style paths at root level)
 // Must come before the /api routes to match /v2/ontologies/... paths
 app.use('/', validateAuth0Token, usernamePropagation, createRateLimiter(50, redisClient), aiChatHistoryRouter);
+app.use('/', validateAuth0Token, usernamePropagation, createRateLimiter(50, redisClient), atlasIntraencounterHistoryRouter);
+app.use('/', validateAuth0Token, usernamePropagation, createRateLimiter(50, redisClient), intraencounterRouter);
 
 // Debug endpoints (protected)
 app.use('/api/v1/debug', debugRouter);

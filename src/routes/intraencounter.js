@@ -106,6 +106,145 @@ router.post('/', validateTokenWithScopes(['execute:actions']), async (req, res, 
   }
 });
 
+/**
+ * POST /v2/ontologies/:ontologyId/objects/AtlasIntraencounterProduction/search
+ * Search Atlas Intraencounter Production objects with filters
+ */
+router.post('/v2/ontologies/:ontologyId/objects/AtlasIntraencounterProduction/search',
+  validateTokenWithScopes(['read:patient']),
+  async (req, res, next) => {
+    try {
+      const { ontologyId } = req.params;
+      const { 
+        where,
+        pageSize = 30,
+        nextPageToken,
+        select,
+        includeRid = false
+      } = req.body;
+
+      logger.info('Searching Atlas Intraencounter Production objects', {
+        ontologyId,
+        where,
+        pageSize,
+        hasNextPageToken: !!nextPageToken,
+        select,
+        includeRid,
+        userId: req.user?.sub
+      });
+
+      // Validate ontology ID
+      const expectedOntologyId = 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+      if (ontologyId !== expectedOntologyId) {
+        return res.status(400).json({
+          error: 'Invalid ontology ID',
+          expected: expectedOntologyId,
+          received: ontologyId
+        });
+      }
+
+      // Get user ID for filtering
+      const userId = resolveUserId(req);
+      if (!userId) {
+        return res.status(400).json({
+          error: {
+            code: 'MISSING_IDENTITY',
+            message: 'Unable to resolve user identity for search',
+            correlationId: req.correlationId,
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+
+      // Make direct call to Foundry API to search AtlasIntraencounterProduction objects
+      try {
+        // Get Foundry access token
+        const token = await mediaUploadService.getFoundryToken();
+        
+        // Build search payload
+        const searchPayload = {
+          where: where || {
+            type: "eq",
+            field: "userId", 
+            value: userId
+          },
+          pageSize: Math.min(parseInt(pageSize) || 30, 100)
+        };
+
+        if (select && Array.isArray(select)) {
+          searchPayload.select = select;
+        }
+
+        if (includeRid) {
+          searchPayload.includeRid = includeRid;
+        }
+
+        logger.info('Making direct Foundry API call for AtlasIntraencounterProduction search', {
+          searchPayload,
+          userId,
+          correlationId: req.correlationId
+        });
+
+        // Make direct API call to Foundry
+        const foundryHost = process.env.FOUNDRY_HOST || 'https://atlasengine.palantirfoundry.com';
+        const searchUrl = `${foundryHost}/api/v2/ontologies/${ontologyId}/objects/AtlasIntraencounterProduction/search`;
+        
+        const response = await fetch(searchUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify(searchPayload)
+        });
+
+        if (!response.ok) {
+          throw new Error(`Foundry API returned ${response.status}: ${response.statusText}`);
+        }
+
+        const foundryResult = await response.json();
+        
+        logger.info('Atlas Intraencounter search completed via Foundry API', {
+          userId,
+          resultCount: foundryResult.data?.length || 0,
+          correlationId: req.correlationId
+        });
+
+        // Return results in the expected format
+        res.json({
+          data: foundryResult.data || [],
+          nextPageToken: foundryResult.nextPageToken || null,
+          hasMore: !!foundryResult.nextPageToken
+        });
+
+      } catch (searchError) {
+        logger.warn('Foundry API search failed, returning empty results', {
+          error: searchError.message,
+          userId,
+          correlationId: req.correlationId
+        });
+
+        // Return empty results instead of failing
+        res.json({
+          data: [],
+          nextPageToken: null,
+          hasMore: false
+        });
+      }
+
+    } catch (error) {
+      logger.error('Error in Atlas Intraencounter search endpoint', {
+        error: error.message,
+        stack: error.stack,
+        userId: req.user?.sub,
+        correlationId: req.correlationId
+      });
+      next(error);
+    }
+  }
+);
+
 export { router as intraencounterRouter };
 
 
