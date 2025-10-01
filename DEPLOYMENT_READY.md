@@ -13,7 +13,7 @@
 - **File:** `src/routes/patient-profile.js`
   - Converted from CommonJS to ES modules
   - Removed duplicate Auth0 middleware (uses server-level validation)
-  - Uses `req.auth.sub` for user ID from validated JWT
+  - Uses `req.user.sub` for user ID from validated JWT
   - All endpoints protected by Auth0
 
 ### ✅ Service Converted to ES Modules
@@ -40,14 +40,14 @@ app.use('/api', validateAuth0Token, usernamePropagation);
 ### What This Means
 1. **All `/api/v1/patient-profile/*` routes are protected**
 2. **Auth0 JWT token required** in `Authorization: Bearer {token}` header
-3. **User info available** in `req.auth.sub` (user ID)
+3. **User info available** in `req.user.sub` (user ID)
 4. **Username propagated** via `usernamePropagation` middleware
 
 ### Request Flow
 ```
 iOS App → Auth0 Token → Backend Proxy → Validate JWT → Patient Profile Route
                                         ↓
-                                  req.auth.sub = user_id
+                                  req.user.sub = user_id
 ```
 
 ---

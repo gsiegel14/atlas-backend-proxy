@@ -11,7 +11,7 @@ import crypto from 'crypto';
 const router = express.Router();
 
 // Note: Auth0 JWT validation is handled by server.js middleware for all /api routes
-// req.auth will contain the validated JWT payload with user info
+// req.user will contain the validated JWT payload with user info
 
 /**
  * POST /api/v1/patient-profile/update
@@ -33,7 +33,7 @@ router.post('/update', async (req, res) => {
     
     try {
         // Extract user ID from Auth0 token
-        const userId = req.auth.sub;
+        const userId = req.user.sub;
         
         logger.info('Patient profile update request', { 
             userId, 
@@ -133,7 +133,7 @@ router.get('/', async (req, res) => {
     const correlationId = req.headers['x-correlation-id'] || crypto.randomUUID();
     
     try {
-        const userId = req.auth.sub;
+        const userId = req.user.sub;
         
         logger.info('Patient profile fetch request', { userId, correlationId });
 
@@ -193,7 +193,7 @@ router.patch('/partial', async (req, res) => {
     const correlationId = req.headers['x-correlation-id'] || crypto.randomUUID();
     
     try {
-        const userId = req.auth.sub;
+        const userId = req.user.sub;
         
         logger.info('Partial profile update request', { 
             userId, 
@@ -277,10 +277,10 @@ router.post('/batch-update', async (req, res) => {
     
     try {
         // Check if user has admin role (implement your own auth check)
-        const userRoles = req.auth.permissions || [];
+        const userRoles = req.user.permissions || [];
         if (!userRoles.includes('admin')) {
             logger.warn('Unauthorized batch update attempt', { 
-                userId: req.auth.sub,
+                userId: req.user.sub,
                 correlationId 
             });
             return res.status(403).json({
@@ -290,7 +290,7 @@ router.post('/batch-update', async (req, res) => {
         }
 
         logger.info('Batch profile update request', { 
-            userId: req.auth.sub,
+            userId: req.user.sub,
             count: req.body.updates?.length,
             correlationId 
         });
