@@ -1,4 +1,4 @@
-import { client } from '../osdk/client.js';
+import { client, AiChatHistoryProduction } from '../osdk/client.js';
 import { logger } from '../utils/logger.js';
 import { isOk } from '@osdk/client';
 import { FoundryService } from './foundryService.js';
@@ -546,14 +546,21 @@ export class AiChatHistoryService {
           queryParams.$includeRid = true;
         }
 
-        // Execute using the OSDK client ontology method with correct RID
+        // Execute using the OSDK client with typed object
         try {
-          const osdkRid = process.env.FOUNDRY_ONTOLOGY_RID;
-          if (!osdkRid) {
-            throw new Error('FOUNDRY_ONTOLOGY_RID environment variable is required for OSDK');
+          if (!AiChatHistoryProduction) {
+            throw new Error('AiChatHistoryProduction type not available - SDK not loaded');
           }
-          const objectSet = client.ontology(osdkRid).objects(this.objectType);
-          const result = await objectSet.fetchPage(queryParams);
+          
+          // Use the typed OSDK v2 pattern: client(TypedObject).where(...).fetchPage()
+          const result = await client(AiChatHistoryProduction)
+            .where({ userId: { $eq: userId } })
+            .orderBy({ timestamp: 'desc' })
+            .fetchPage({
+              $pageSize: pageSize,
+              $select: select,
+              $includeRid: includeRid
+            });
 
           logger.info('Found AI chat history entries for user via OSDK', {
             userId,
@@ -565,7 +572,7 @@ export class AiChatHistoryService {
           logger.error('OSDK client call failed', {
             error: osdkError.message,
             clientType: typeof client,
-            hasOntology: typeof client?.ontology
+            hasAiChatHistoryProduction: !!AiChatHistoryProduction
           });
           throw osdkError; // Re-throw to trigger the outer catch block
         }
