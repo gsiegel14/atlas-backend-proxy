@@ -1,4 +1,4 @@
-import { client, AtlasIntraencounterProduction, osdkOntologyRid, osdkHost } from '../osdk/client.js';
+import { client, AtlasIntraencounterProduction, osdkOntologyRid } from '../osdk/client.js';
 import { logger } from '../utils/logger.js';
 import { isOk } from '@osdk/client';
 import { createConfidentialOauthClient } from '@osdk/oauth';
@@ -175,6 +175,7 @@ export class AtlasIntraencounterService {
       }
 
       // Use the typed OSDK v2 pattern
+      // Note: The object type property is 'userId' not 'user_id'
       const result = await client(AtlasIntraencounterProduction)
         .where({ userId: { $eq: userId } })
         .fetchPage({
@@ -254,78 +255,73 @@ export class AtlasIntraencounterService {
       includeRid = false
     } = options;
 
-    try {
-      const tokenProvider = createConfidentialOauthClient(
-        process.env.FOUNDRY_CLIENT_ID,
-        process.env.FOUNDRY_CLIENT_SECRET,
-        osdkHost,
-        ['api:use-ontologies-read']
-      );
-      
-      const token = await tokenProvider();
-      const searchUrl = `${osdkHost}/api/v2/ontologies/${osdkOntologyRid}/objects/AtlasIntraencounterProduction/search`;
-      
-      const searchPayload = {
-        where: {
-          type: 'eq',
-          field: 'userId',
-          value: userId
-        },
-        orderBy: {
-          fields: [{ field: 'timestamp', direction: 'desc' }]
-        },
-        pageSize: pageSize
-      };
+    const foundryHost = process.env.FOUNDRY_HOST || 'https://atlasengine.palantirfoundry.com';
+    
+    // Get access token
+    const tokenProvider = createConfidentialOauthClient(
+      process.env.FOUNDRY_CLIENT_ID,
+      process.env.FOUNDRY_CLIENT_SECRET,
+      foundryHost,
+      ['api:use-ontologies-read']
+    );
+    const token = await tokenProvider();
+    
+    const searchUrl = `${foundryHost}/api/v2/ontologies/${this.ontologyRid}/objects/${this.objectType}/search`;
+    
+    logger.info('Searching intra-encounter via REST API', {
+      searchUrl: searchUrl.replace(foundryHost, '[FOUNDRY_HOST]'),
+      userId,
+      pageSize,
+      ontologyRid: this.ontologyRid
+    });
 
-      if (select && select.length > 0) {
-        searchPayload.select = select;
-      }
+    // Note: The API shows the property is 'userId' not 'user_id'
+    const requestBody = {
+      where: {
+        field: 'userId',
+        type: 'eq',
+        value: userId
+      },
+      pageSize,
+      select: select || [
+        'transcript', 'summary', 'llmSummary',
+        'userId', 'timestamp', 'providerName', 
+        'location', 'hospital', 'speciality', 
+        'audiofileId', 'audiofile'
+      ]
+    };
 
-      if (includeRid) {
-        searchPayload.includeRid = includeRid;
-      }
-      
-      logger.info('REST API intra-encounter search attempt', {
-        searchUrl,
+    const response = await fetch(searchUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error('Foundry REST API search failed for intra-encounter', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText,
         userId,
-        pageSize,
-        includeRid
+        ontologyRid: this.ontologyRid
       });
-      
-      const response = await fetch(searchUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(searchPayload)
-      });
-      
-      if (!response.ok) {
-        logger.warn('REST API search failed', {
-          status: response.status,
-          statusText: response.statusText,
-          userId
-        });
-        throw new Error(`REST API returned ${response.status}: ${response.statusText}`);
-      }
-      
-      const searchResult = await response.json();
-      
-      logger.info('REST API intra-encounter search success', {
-        userId,
-        count: searchResult.data?.length || 0
-      });
-      
-      return this._normalize(searchResult.data || []);
-      
-    } catch (error) {
-      logger.error('REST API intra-encounter search failed', {
-        error: error.message,
-        userId
-      });
-      throw error;
+      throw new Error(`Foundry search API error: ${response.status} - ${errorText}`);
     }
+
+    const result = await response.json();
+    
+    logger.info('Successfully searched intra-encounter via REST API', {
+      userId,
+      entryCount: result.data?.length || 0,
+      hasNextPage: !!result.nextPageToken
+    });
+
+    return result.data || [];
   }
 }
 
