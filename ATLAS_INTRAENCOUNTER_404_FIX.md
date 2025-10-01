@@ -145,9 +145,25 @@ curl -X POST "https://atlas-backend-proxy.onrender.com/v2/ontologies/ontology-15
   }'
 ```
 
+## AI Chat History Production Status
+
+The AI Chat History Production service was already working correctly and didn't need the same fixes:
+
+### ✅ Already Working Correctly:
+- **Ontology**: Uses `foundryService.getApiOntologyRid()` which correctly returns `ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194`
+- **Field Names**: Already uses correct camelCase names (`chatId`, `userId`, `transcript`, `timestamp`)
+- **Action Parameters**: Correctly maps `userId` → `user_id` for action calls
+- **REST API Fallback**: Already implemented and working
+
+### ✅ Added Preventive Measures:
+- Added field filtering to routes (same as AtlasIntraencounterProduction)
+- Valid fields: `['chatId', 'transcript', 'userId', 'timestamp']`
+- Filters out any invalid fields before making API calls
+
 ## Future Improvements
 
 1. Consider adding TypeScript types to validate field names at compile time
 2. Add middleware to automatically map legacy field names to new ones
 3. Document the valid fields for each object type in the codebase
 4. Consider consolidating objects into a single ontology to avoid this complexity
+5. Create a centralized field validation system for all object types
