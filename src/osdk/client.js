@@ -96,7 +96,8 @@ if (bypassInitialization) {
         ontologyRid: ontologyRid
     });
 
-    // createClient returns a client function that wraps the ontology
+    // OSDK v2 createClient returns a function that is called with object types
+    // Example: client(FastenClinicalNotes).fetchPage()
     try {
         console.log('Creating OSDK client with:', { 
             host, 
@@ -107,14 +108,25 @@ if (bypassInitialization) {
         
         const baseClient = createOSDKClient(host, ontologyRid, tokenProvider);
         
-        // OSDK v2 returns a function - wrap it to provide .ontology() method for compatibility
+        // OSDK v2 returns a function - wrap it to provide both direct call and legacy .ontology() method
         if (baseClient && typeof baseClient === 'function') {
-            // Create a wrapper that provides both direct call and .ontology() method
+            // Create a wrapper that provides both patterns:
+            // 1. Direct call: client(ObjectType).fetchPage() - OSDK v2 pattern
+            // 2. Legacy: client.ontology(rid).objects(type) - for backward compatibility
             client = Object.assign(baseClient, {
-                ontology: (rid) => baseClient  // Return the base client for any ontology RID
+                ontology: (rid) => ({
+                    objects: (objectType) => baseClient(objectType),
+                    action: (actionType) => ({
+                        applyAction: async (params, options) => {
+                            // For actions, we need to use the action API
+                            throw new Error('Action API not implemented via OSDK wrapper - use REST API fallback');
+                        }
+                    })
+                })
             });
             
             console.log('✅ OSDK client created and wrapped successfully');
+            console.log('✅ Supports both client(ObjectType) and client.ontology(rid).objects(type) patterns');
             
             // Check if SDK types are available
             if (A && FastenClinicalNotes) {
