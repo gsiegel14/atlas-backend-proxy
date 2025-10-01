@@ -39,13 +39,13 @@ export class MediaUploadService {
       // Convert base64 to binary buffer
       const fileBuffer = Buffer.from(base64Data, 'base64');
       
-      // Configure for audio uploads
-      // Note: AtlasIntraencounter doesn't exist, using generic media upload
-      const objectType = 'MediaUpload';
-      const property = 'mediaFile';
+      // Configure for audio uploads - use the correct object type and property
+      // for AtlasIntraencounterProduction
+      const objectType = 'AtlasIntraencounterProduction';
+      const property = 'audiofile';
       const mediaItemPath = this.createAudioPath(filename);
 
-      return await this.uploadToFoundryMediaEndpoint(
+      return await this.uploadViaOntologyMediaEndpoint(
         fileBuffer,
         objectType,
         property,
@@ -83,12 +83,13 @@ export class MediaUploadService {
       // Convert base64 to binary buffer
       const fileBuffer = Buffer.from(base64Data, 'base64');
       
-      // Configure for image uploads
+      // Configure for image uploads - use the correct object type and property
+      // for MedicationsUpload
       const objectType = 'MedicationsUpload';
       const property = 'photolabel';
       const mediaItemPath = this.createImagePath(filename);
 
-      return await this.uploadToFoundryMediaEndpoint(
+      return await this.uploadViaOntologyMediaEndpoint(
         fileBuffer,
         objectType,
         property,
@@ -154,22 +155,16 @@ export class MediaUploadService {
     // Get authentication token via direct REST API
     const token = await this.getFoundryToken();
 
-    // Foundry MediaReference format: ensure the reference uses the standard "$rid" key
-    let audiofileRef = params.audiofile;
-    if (typeof params.audiofile === 'object' && (params.audiofile?.$rid || params.audiofile?.__rid)) {
-      // Normalize to {$rid: "..."}
-      const rid = params.audiofile.$rid || params.audiofile.__rid;
-      audiofileRef = { $rid: rid };
-    } else if (typeof params.audiofile === 'string') {
-      // Convert plain string to {$rid: "..."}
-      audiofileRef = { $rid: params.audiofile };
-    }
+    // Use the MediaReference directly as returned from the upload endpoint
+    // The ontology media upload endpoint returns a properly formatted MediaReference
+    // that includes both the reference object and mimeType
+    const audiofileRef = params.audiofile;
 
     const requestBody = {
       parameters: {
         timestamp: params.timestamp || new Date().toISOString(),
         user_id: params.user_id,
-        audiofile: audiofileRef, // MediaReference as {$rid: "..."}
+        audiofile: audiofileRef, // MediaReference from ontology upload endpoint
         transcript: params.transcript,
         location: params.location || '',
         provider_name: params.provider_name || '',
@@ -268,30 +263,28 @@ export class MediaUploadService {
   }
 
   /**
-   * Core method to upload binary data to Foundry media endpoint
-   * Uses direct media set API since object types are not configured correctly
+   * Upload binary data to Foundry via the Ontology Object Type Media Property endpoint
+   * This is the correct approach per Foundry API docs - uploads are associated with
+   * the object type's property schema, ensuring proper MediaReference validation
    * @private
    */
-  async uploadToFoundryMediaEndpoint(fileBuffer, objectType, property, mediaItemPath, contentType, userId) {
+  async uploadViaOntologyMediaEndpoint(fileBuffer, objectType, property, mediaItemPath, contentType, userId) {
     // Get authentication token via direct REST API
     const token = await this.getFoundryToken();
     
-    // Use direct media set API instead of ontology endpoint
-    // Choose the appropriate media set based on content type
-    const isAudioFile = contentType && contentType.startsWith('audio/');
-    const mediaSetRid = isAudioFile 
-      ? this.audioMediaSetRid 
-      : this.medicationsMediaSetRid; // Default for images/other files
-    const uploadUrl = `${this.foundryHost}/api/v2/mediasets/${mediaSetRid}/items?mediaItemPath=${encodeURIComponent(mediaItemPath)}&preview=true`;
+    // Use the correct Foundry API endpoint for media uploads
+    // POST /api/v2/ontologies/{ontology}/objectTypes/{objectType}/media/{property}/upload
+    const uploadUrl = `${this.foundryHost}/api/v2/ontologies/${this.ontologyApiName}/objectTypes/${objectType}/media/${property}/upload?mediaItemPath=${encodeURIComponent(mediaItemPath)}&preview=true`;
     
-    logger.info('MediaUploadService: Uploading to Foundry media set', {
+    logger.info('MediaUploadService: Uploading via ontology media property endpoint', {
       uploadUrl,
-      mediaSetRid,
+      ontology: this.ontologyApiName,
+      objectType,
+      property,
       mediaItemPath,
       fileSize: fileBuffer.length,
       contentType,
-      userId,
-      mediaSetType: isAudioFile ? 'audio' : 'image/other'
+      userId
     });
 
     // Make the upload request
@@ -307,34 +300,34 @@ export class MediaUploadService {
     // Handle response
     if (!uploadResponse.ok) {
       const errorText = await uploadResponse.text();
-      logger.error('MediaUploadService: Foundry media set upload failed', {
+      logger.error('MediaUploadService: Ontology media upload failed', {
         status: uploadResponse.status,
         error: errorText,
         uploadUrl,
-        mediaSetRid,
+        objectType,
+        property,
         userId
       });
-      throw new Error(`Foundry media set upload failed: ${uploadResponse.status} - ${errorText}`);
+      throw new Error(`Foundry ontology media upload failed: ${uploadResponse.status} - ${errorText}`);
     }
 
     const result = await uploadResponse.json();
     
-    logger.info('MediaUploadService: Foundry media set upload successful', {
-      mediaSetRid,
+    logger.info('MediaUploadService: Ontology media upload successful', {
+      objectType,
+      property,
       mediaItemPath,
       userId,
-      result
+      hasReference: !!result.reference,
+      mimeType: result.mimeType
     });
 
-    // Ensure the result has the correct format for Foundry actions
-    // The action expects a media reference in the format: { $rid: "ri.mio.main.media-item.xxx" }
-    const mediaReference = {
-      $rid: result.mediaItemRid || result.$rid || result.rid
-    };
-
+    // The response contains a properly formatted MediaReference object
+    // that can be used directly in ontology actions
     return {
       ...result,
-      reference: mediaReference
+      // Ensure backward compatibility - the reference field contains the MediaReference
+      reference: result.reference || result
     };
   }
 
