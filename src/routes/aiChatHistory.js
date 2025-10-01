@@ -114,13 +114,42 @@ router.post('/v2/ontologies/:ontologyId/objects/AiChatHistoryProduction/search',
         });
       }
 
-      // For now, we'll use the basic fetch and filter approach
-      // In a full implementation, you would implement proper search filters
+      // Support both old-style and OSDK-style where clauses
       let results;
 
-      if (where && where.field === 'userId' && where.type === 'eq') {
-        // Search by user ID
-        logger.debug('Searching AI chat history by userId', {
+      // OSDK-style where clause: { userId: { $eq: "value" } }
+      if (where && where.userId && where.userId.$eq) {
+        const userId = where.userId.$eq;
+        
+        logger.debug('Searching AI chat history by userId (OSDK style)', {
+          userId,
+          pageSize,
+          select,
+          includeRid,
+          correlationId: req.correlationId
+        });
+
+        results = await aiChatHistoryService.searchByUserId(userId, {
+          pageSize: Math.min(parseInt(pageSize) || 30, 100),
+          select,
+          includeRid
+        });
+
+        logger.debug('AI chat history search completed', {
+          userId,
+          resultCount: results.length,
+          correlationId: req.correlationId
+        });
+
+        res.json({
+          data: results,
+          nextPageToken: null,
+          hasMore: false
+        });
+      }
+      // Legacy format: { field: 'userId', type: 'eq', value: 'xxx' }
+      else if (where && where.field === 'userId' && where.type === 'eq') {
+        logger.debug('Searching AI chat history by userId (legacy format)', {
           userId: where.value,
           pageSize,
           select,
@@ -142,11 +171,17 @@ router.post('/v2/ontologies/:ontologyId/objects/AiChatHistoryProduction/search',
 
         res.json({
           data: results,
-          nextPageToken: null, // For simplicity, not implementing pagination for search
+          nextPageToken: null,
           hasMore: false
         });
-      } else {
-        // General fetch
+      }
+      // No where clause - fetch all
+      else {
+        logger.debug('Fetching all AI chat history (no filter)', {
+          pageSize,
+          correlationId: req.correlationId
+        });
+
         const result = await aiChatHistoryService.fetchPage({
           pageSize: Math.min(parseInt(pageSize) || 30, 100),
           nextPageToken,
@@ -162,7 +197,7 @@ router.post('/v2/ontologies/:ontologyId/objects/AiChatHistoryProduction/search',
           });
         } else {
           res.status(500).json({
-            error: 'Failed to search AI chat history',
+            error: 'Failed to fetch AI chat history',
             details: result.error
           });
         }
