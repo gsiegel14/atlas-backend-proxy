@@ -525,14 +525,14 @@ export class AiChatHistoryService {
           pageSize,
           select,
           includeRid,
-          searchField: 'user_id'
+          searchField: 'userId'
         });
 
         // Build the query with where clause (OSDK fetchPage supports server-side filtering)
-        // Note: Database stores as user_id (snake_case), so we must use that exact field name
+        // Note: OSDK uses API names (camelCase) - userId not user_id
         const queryParams = {
           $where: {
-            user_id: { $eq: userId }
+            userId: { $eq: userId }
           },
           $pageSize: pageSize,
           $orderBy: {
@@ -555,9 +555,9 @@ export class AiChatHistoryService {
           }
           
           // Use the typed OSDK v2 pattern: client(TypedObject).where(...).fetchPage()
-          // Note: Database stores as user_id (snake_case), so we must use that exact field name
+          // Note: OSDK uses API names (camelCase) - userId not user_id
           const result = await client(AiChatHistoryProduction)
-            .where({ user_id: { $eq: userId } })
+            .where({ userId: { $eq: userId } })
             .fetchPage({
               $pageSize: pageSize,
               $select: select,
