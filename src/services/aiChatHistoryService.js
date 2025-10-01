@@ -625,12 +625,12 @@ export class AiChatHistoryService {
       searchUrl: searchUrl.replace(foundryHost, '[FOUNDRY_HOST]'),
       userId,
       pageSize,
-      searchField: 'user_id'
+      searchField: 'userId'
     });
 
     const requestBody = {
       where: {
-        field: 'user_id',  // Database field name is user_id (snake_case)
+        field: 'userId',  // REST API uses camelCase field names
         type: 'eq',
         value: userId
       },
