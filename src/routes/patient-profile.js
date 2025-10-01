@@ -5,10 +5,19 @@
 
 import express from 'express';
 import PatientProfileService from '../services/patient-profile-service.js';
+import { FoundryService } from '../services/foundryService.js';
 import { logger } from '../utils/logger.js';
 import crypto from 'crypto';
 
 const router = express.Router();
+
+// Initialize Foundry service
+const foundryService = new FoundryService({
+  host: process.env.FOUNDRY_HOST,
+  clientId: process.env.FOUNDRY_CLIENT_ID,
+  clientSecret: process.env.FOUNDRY_CLIENT_SECRET,
+  tokenUrl: process.env.FOUNDRY_OAUTH_TOKEN_URL
+});
 
 // Note: Auth0 JWT validation is handled by server.js middleware for all /api routes
 // req.user will contain the validated JWT payload with user info
@@ -42,16 +51,8 @@ router.post('/update', async (req, res) => {
             hasFamilyHistory: !!req.body.familyMedicalHistory
         });
 
-        // Get Foundry token (from service account)
-        const foundryToken = process.env.FOUNDRY_TOKEN || process.env.FOUNDRY_SERVICE_TOKEN;
-        if (!foundryToken) {
-            logger.error('Foundry service token not configured', { correlationId });
-            return res.status(500).json({
-                success: false,
-                error: 'Service configuration error'
-            });
-        }
-
+        // Get Foundry token using OAuth
+        const foundryToken = await foundryService.getToken();
         const profileService = new PatientProfileService(foundryToken);
 
         // Prepare profile data from request body
@@ -137,15 +138,7 @@ router.get('/', async (req, res) => {
         
         logger.info('Patient profile fetch request', { userId, correlationId });
 
-        const foundryToken = process.env.FOUNDRY_TOKEN || process.env.FOUNDRY_SERVICE_TOKEN;
-        if (!foundryToken) {
-            logger.error('Foundry service token not configured', { correlationId });
-            return res.status(500).json({
-                success: false,
-                error: 'Service configuration error'
-            });
-        }
-
+        const foundryToken = await foundryService.getToken();
         const profileService = new PatientProfileService(foundryToken);
         const profile = await profileService.findProfileByUserId(userId);
 
@@ -201,15 +194,7 @@ router.patch('/partial', async (req, res) => {
             updateFields: Object.keys(req.body)
         });
 
-        const foundryToken = process.env.FOUNDRY_TOKEN || process.env.FOUNDRY_SERVICE_TOKEN;
-        if (!foundryToken) {
-            logger.error('Foundry service token not configured', { correlationId });
-            return res.status(500).json({
-                success: false,
-                error: 'Service configuration error'
-            });
-        }
-
+        const foundryToken = await foundryService.getToken();
         const profileService = new PatientProfileService(foundryToken);
 
         // Find existing profile
@@ -302,15 +287,7 @@ router.post('/batch-update', async (req, res) => {
             });
         }
 
-        const foundryToken = process.env.FOUNDRY_TOKEN || process.env.FOUNDRY_SERVICE_TOKEN;
-        if (!foundryToken) {
-            logger.error('Foundry service token not configured', { correlationId });
-            return res.status(500).json({
-                success: false,
-                error: 'Service configuration error'
-            });
-        }
-
+        const foundryToken = await foundryService.getToken();
         const profileService = new PatientProfileService(foundryToken);
         const result = await profileService.batchUpdateProfiles(req.body.updates);
 
