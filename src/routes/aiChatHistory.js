@@ -120,10 +120,24 @@ router.post('/v2/ontologies/:ontologyId/objects/AiChatHistoryProduction/search',
 
       if (where && where.field === 'userId' && where.type === 'eq') {
         // Search by user ID
+        logger.debug('Searching AI chat history by userId', {
+          userId: where.value,
+          pageSize,
+          select,
+          includeRid,
+          correlationId: req.correlationId
+        });
+
         results = await aiChatHistoryService.searchByUserId(where.value, {
           pageSize: Math.min(parseInt(pageSize) || 30, 100),
           select,
           includeRid
+        });
+
+        logger.debug('AI chat history search completed', {
+          userId: where.value,
+          resultCount: results.length,
+          correlationId: req.correlationId
         });
 
         res.json({

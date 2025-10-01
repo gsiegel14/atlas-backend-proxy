@@ -595,6 +595,15 @@ export class AiChatHistoryService {
       // Note: includeRid is not supported by Foundry REST API, only by OSDK
     };
 
+    // Debug: Log exact request being sent
+    logger.debug('AI Chat History REST API request details', {
+      method: 'POST',
+      url: searchUrl,
+      body: JSON.stringify(requestBody),
+      userId,
+      hasToken: !!token
+    });
+
     const response = await fetch(searchUrl, {
       method: 'POST',
       headers: {
@@ -618,9 +627,21 @@ export class AiChatHistoryService {
 
     const result = await response.json();
     
+    // Debug: Log response structure
+    logger.debug('AI Chat History REST API response details', {
+      userId,
+      status: response.status,
+      hasData: !!result.data,
+      dataCount: result.data?.length || 0,
+      hasNextPageToken: !!result.nextPageToken,
+      dataKeys: result.data?.[0] ? Object.keys(result.data[0]) : [],
+      responseStructure: Object.keys(result)
+    });
+    
     logger.info('Successfully searched AI chat history via REST API', {
       userId,
-      entryCount: result.data?.length || 0
+      entryCount: result.data?.length || 0,
+      hasNextPage: !!result.nextPageToken
     });
 
     return result.data || [];
