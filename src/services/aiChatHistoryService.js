@@ -570,7 +570,13 @@ export class AiChatHistoryService {
 
       logger.info('Found AI chat history entries for user via OSDK', {
         userId,
-        entryCount: result.data?.length || 0
+        entryCount: result.data?.length || 0,
+        sampleEntry: result.data?.[0] ? {
+          chatId: result.data[0].chatId,
+          transcript: result.data[0].transcript?.substring(0, 50) + '...',
+          timestamp: result.data[0].timestamp,
+          userId: result.data[0].userId
+        } : null
       });
 
       // Debug: If no results, let's fetch a few records to see what user IDs exist

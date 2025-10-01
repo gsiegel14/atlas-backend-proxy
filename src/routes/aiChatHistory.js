@@ -157,6 +157,16 @@ router.post('/v2/ontologies/:ontologyId/objects/AiChatHistoryProduction/search',
           correlationId: req.correlationId
         });
 
+        logger.info('Sending AI chat history response to frontend', {
+          userId,
+          resultCount: results.length,
+          sampleResult: results[0] ? {
+            chatId: results[0].chatId,
+            transcript: results[0].transcript?.substring(0, 50) + '...',
+            timestamp: results[0].timestamp
+          } : null
+        });
+
         res.json({
           data: results,
           nextPageToken: null,
@@ -199,6 +209,16 @@ router.post('/v2/ontologies/:ontologyId/objects/AiChatHistoryProduction/search',
           userId: where.value,
           resultCount: results.length,
           correlationId: req.correlationId
+        });
+
+        logger.info('Sending AI chat history response to frontend', {
+          userId,
+          resultCount: results.length,
+          sampleResult: results[0] ? {
+            chatId: results[0].chatId,
+            transcript: results[0].transcript?.substring(0, 50) + '...',
+            timestamp: results[0].timestamp
+          } : null
         });
 
         res.json({
