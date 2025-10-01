@@ -129,9 +129,24 @@ router.post('/v2/ontologies/:ontologyId/objects/AiChatHistoryProduction/search',
           correlationId: req.correlationId
         });
 
+        // Filter out non-existent fields from select if provided
+        const validFields = ['chatId', 'transcript', 'userId', 'timestamp'];
+        const filteredSelect = select ? select.filter(field => validFields.includes(field)) : undefined;
+        
+        if (select && filteredSelect) {
+          logger.debug('Filtered invalid fields from AI chat history select', {
+            original: select,
+            filtered: filteredSelect,
+            removed: select.filter(field => !validFields.includes(field))
+          });
+        }
+        
+        // If all fields were filtered out, use undefined to get default fields
+        const finalSelect = filteredSelect && filteredSelect.length > 0 ? filteredSelect : undefined;
+
         results = await aiChatHistoryService.searchByUserId(userId, {
           pageSize: Math.min(parseInt(pageSize) || 30, 100),
-          select,
+          select: finalSelect,
           includeRid
         });
 
@@ -157,9 +172,24 @@ router.post('/v2/ontologies/:ontologyId/objects/AiChatHistoryProduction/search',
           correlationId: req.correlationId
         });
 
+        // Filter out non-existent fields from select if provided
+        const validFields = ['chatId', 'transcript', 'userId', 'timestamp'];
+        const filteredSelect = select ? select.filter(field => validFields.includes(field)) : undefined;
+        
+        if (select && filteredSelect) {
+          logger.debug('Filtered invalid fields from AI chat history select (legacy)', {
+            original: select,
+            filtered: filteredSelect,
+            removed: select.filter(field => !validFields.includes(field))
+          });
+        }
+        
+        // If all fields were filtered out, use undefined to get default fields
+        const finalSelect = filteredSelect && filteredSelect.length > 0 ? filteredSelect : undefined;
+
         results = await aiChatHistoryService.searchByUserId(where.value, {
           pageSize: Math.min(parseInt(pageSize) || 30, 100),
-          select,
+          select: finalSelect,
           includeRid
         });
 
