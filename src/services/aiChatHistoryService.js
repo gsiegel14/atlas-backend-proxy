@@ -565,10 +565,28 @@ export class AiChatHistoryService {
               $orderBy: { timestamp: 'desc' }
             });
 
-          logger.info('Found AI chat history entries for user via OSDK', {
-            userId,
-            entryCount: result.data?.length || 0
+      logger.info('Found AI chat history entries for user via OSDK', {
+        userId,
+        entryCount: result.data?.length || 0
+      });
+
+      // Debug: If no results, let's fetch a few records to see what user IDs exist
+      if (result.data?.length === 0) {
+        try {
+          const sampleResult = await client(AiChatHistoryProduction)
+            .fetchPage({ $pageSize: 5 });
+          const sampleUserIds = sampleResult.data?.map(record => record.userId || record.user_id) || [];
+          logger.info('Sample user IDs in database for debugging', {
+            searchedUserId: userId,
+            sampleUserIds: sampleUserIds.slice(0, 5),
+            totalSampleRecords: sampleResult.data?.length || 0
           });
+        } catch (debugError) {
+          logger.warn('Could not fetch sample records for debugging', {
+            error: debugError.message
+          });
+        }
+      }
 
           return result.data || [];
         } catch (osdkError) {
