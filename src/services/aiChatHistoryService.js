@@ -591,8 +591,8 @@ export class AiChatHistoryService {
         value: userId
       },
       pageSize,
-      select: select || ['chatId', 'transcript', 'userId', 'timestamp'],
-      includeRid
+      select: select || ['chatId', 'transcript', 'userId', 'timestamp']
+      // Note: includeRid is not supported by Foundry REST API, only by OSDK
     };
 
     const response = await fetch(searchUrl, {
