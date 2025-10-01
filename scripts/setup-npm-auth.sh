@@ -2,6 +2,9 @@
 # This script sets up NPM authentication for the Foundry registry
 # It should be run before npm install to properly authenticate
 
+echo "=== NPM Auth Setup Script Started ==="
+echo "Current directory: $(pwd)"
+echo "Script location: $0"
 echo "Setting up NPM authentication for Foundry registry..."
 
 if [ -z "$FOUNDRY_TOKEN" ]; then
