@@ -176,11 +176,11 @@ export class AtlasIntraencounterService {
       // Use the typed OSDK v2 pattern
       const result = await client(AtlasIntraencounterProduction)
         .where({ userId: { $eq: userId } })
-        .orderBy({ timestamp: 'desc' })
         .fetchPage({
           $pageSize: pageSize,
           $select: targetSelect,
-          $includeRid: includeRid
+          $includeRid: includeRid,
+          $orderBy: { timestamp: 'desc' }
         });
 
       return this._normalize(result.data || []);

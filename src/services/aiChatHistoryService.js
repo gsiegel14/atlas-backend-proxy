@@ -555,11 +555,11 @@ export class AiChatHistoryService {
           // Use the typed OSDK v2 pattern: client(TypedObject).where(...).fetchPage()
           const result = await client(AiChatHistoryProduction)
             .where({ userId: { $eq: userId } })
-            .orderBy({ timestamp: 'desc' })
             .fetchPage({
               $pageSize: pageSize,
               $select: select,
-              $includeRid: includeRid
+              $includeRid: includeRid,
+              $orderBy: { timestamp: 'desc' }
             });
 
           logger.info('Found AI chat history entries for user via OSDK', {
