@@ -15,7 +15,13 @@ export class AiChatHistoryService {
     this.actionType = 'create-ai-chat-history-production';
     
     // Use FoundryService for consistent ontology RID handling (same as procedures)
-    this.foundryService = foundryService || new FoundryService();
+    this.foundryService = foundryService || new FoundryService({
+      host: process.env.FOUNDRY_HOST,
+      clientId: process.env.FOUNDRY_CLIENT_ID,
+      clientSecret: process.env.FOUNDRY_CLIENT_SECRET,
+      tokenUrl: process.env.FOUNDRY_OAUTH_TOKEN_URL,
+      ontologyRid: process.env.FOUNDRY_ONTOLOGY_RID
+    });
   }
   
   /**
