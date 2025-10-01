@@ -54,9 +54,20 @@ router.post('/v2/ontologies/:ontologyId/objects/AtlasIntraencounterProduction/se
                            'transcript', 'userId'];
         const filteredSelect = select ? select.filter(field => validFields.includes(field)) : undefined;
         
+        if (select && filteredSelect) {
+          logger.info('Filtered invalid fields from select', {
+            original: select,
+            filtered: filteredSelect,
+            removed: select.filter(field => !validFields.includes(field))
+          });
+        }
+        
+        // If all fields were filtered out, use undefined to get default fields
+        const finalSelect = filteredSelect && filteredSelect.length > 0 ? filteredSelect : undefined;
+        
         results = await atlasService.searchByUserId(userId, {
           pageSize: Math.min(parseInt(pageSize) || 30, 100),
-          select: filteredSelect,
+          select: finalSelect,
           includeRid
         });
 
@@ -68,9 +79,26 @@ router.post('/v2/ontologies/:ontologyId/objects/AtlasIntraencounterProduction/se
       }
       // Legacy format: { field: 'userId', type: 'eq', value: 'xxx' }
       else if (where && where.field === 'userId' && where.type === 'eq') {
+        // Filter out non-existent fields from select if provided
+        const validFields = ['audiofileId', 'audiofile', 'hospital', 'llmSummary', 
+                           'location', 'providerName', 'speciality', 'timestamp', 
+                           'transcript', 'userId'];
+        const filteredSelect = select ? select.filter(field => validFields.includes(field)) : undefined;
+        
+        if (select && filteredSelect) {
+          logger.info('Filtered invalid fields from select', {
+            original: select,
+            filtered: filteredSelect,
+            removed: select.filter(field => !validFields.includes(field))
+          });
+        }
+        
+        // If all fields were filtered out, use undefined to get default fields
+        const finalSelect = filteredSelect && filteredSelect.length > 0 ? filteredSelect : undefined;
+        
         results = await atlasService.searchByUserId(where.value, {
           pageSize: Math.min(parseInt(pageSize) || 30, 100),
-          select,
+          select: filteredSelect,
           includeRid
         });
 
