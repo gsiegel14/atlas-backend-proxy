@@ -48,9 +48,15 @@ router.post('/v2/ontologies/:ontologyId/objects/AtlasIntraencounterProduction/se
       if (where && where.userId && where.userId.$eq) {
         const userId = where.userId.$eq;
         
+        // Filter out non-existent fields from select if provided
+        const validFields = ['audiofileId', 'audiofile', 'hospital', 'llmSummary', 
+                           'location', 'providerName', 'speciality', 'timestamp', 
+                           'transcript', 'userId'];
+        const filteredSelect = select ? select.filter(field => validFields.includes(field)) : undefined;
+        
         results = await atlasService.searchByUserId(userId, {
           pageSize: Math.min(parseInt(pageSize) || 30, 100),
-          select,
+          select: filteredSelect,
           includeRid
         });
 

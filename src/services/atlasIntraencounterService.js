@@ -30,25 +30,18 @@ export class AtlasIntraencounterService {
       includeRid = false
     } = options;
 
+    // Valid fields based on API documentation
     const defaultSelect = [
-      'transcript',
-      'summary',
-      'llm_summary',
-      'llmSummary',
-      'aiSummary',
-      'functionSummary',
-      'userId',
-      'user_id',
-      'timestamp',
-      'updatedAt',
-      'createdAt',
-      'ingested_at',
-      'providerName',
-      'provider_name',
-      'location',
+      'audiofileId',
+      'audiofile',
       'hospital',
+      'llmSummary',
+      'location',
+      'providerName',
       'speciality',
-      'rid'
+      'timestamp',
+      'transcript',
+      'userId'
     ];
 
     const targetSelect = select && select.length > 0 ? select : defaultSelect;
@@ -122,25 +115,18 @@ export class AtlasIntraencounterService {
       includeRid = false
     } = options;
 
+    // Valid fields based on API documentation
     const defaultSelect = [
-      'transcript',
-      'summary',
-      'llm_summary',
-      'llmSummary',
-      'aiSummary',
-      'functionSummary',
-      'userId',
-      'user_id',
-      'timestamp',
-      'updatedAt',
-      'createdAt',
-      'ingested_at',
-      'providerName',
-      'provider_name',
-      'location',
+      'audiofileId',
+      'audiofile',
       'hospital',
+      'llmSummary',
+      'location',
+      'providerName',
       'speciality',
-      'rid'
+      'timestamp',
+      'transcript',
+      'userId'
     ];
 
     const targetSelect = select && select.length > 0 ? select : defaultSelect;
@@ -224,23 +210,15 @@ export class AtlasIntraencounterService {
 
   _ensureSummaryFields(entry) {
     const properties = entry.properties ?? {};
-    if (!properties.summary) {
-      const summaryCandidate =
-        properties.llm_summary
-        || properties.llmSummary
-        || properties.aiSummary
-        || properties.functionSummary
-        || properties.summary_text;
-
-      if (summaryCandidate) {
-        entry = {
-          ...entry,
-          properties: {
-            ...properties,
-            summary: summaryCandidate
-          }
-        };
-      }
+    // Map llmSummary to summary for backwards compatibility
+    if (!properties.summary && properties.llmSummary) {
+      entry = {
+        ...entry,
+        properties: {
+          ...properties,
+          summary: properties.llmSummary
+        }
+      };
     }
     return entry;
   }
@@ -284,10 +262,9 @@ export class AtlasIntraencounterService {
       },
       pageSize,
       select: select || [
-        'transcript', 'summary', 'llmSummary',
-        'userId', 'timestamp', 'providerName', 
-        'location', 'hospital', 'speciality', 
-        'audiofileId', 'audiofile'
+        'audiofileId', 'audiofile', 'hospital',
+        'llmSummary', 'location', 'providerName',
+        'speciality', 'timestamp', 'transcript', 'userId'
       ]
     };
 
