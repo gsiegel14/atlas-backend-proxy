@@ -4,12 +4,13 @@ import { createConfidentialOauthClient } from '@osdk/oauth';
 
 // Import generated SDK object types
 // Note: These imports will only work after running 'npm install' with FOUNDRY_TOKEN set
-let A, FastenClinicalNotes, AiChatHistoryProduction;
+let A, FastenClinicalNotes, AiChatHistoryProduction, AtlasIntraencounterProduction;
 try {
     const sdk = await import('@atlas-dev/sdk');
     A = sdk.A;
     FastenClinicalNotes = sdk.FastenClinicalNotes;
     AiChatHistoryProduction = sdk.AiChatHistoryProduction;
+    AtlasIntraencounterProduction = sdk.AtlasIntraencounterProduction;
     console.log('✅ Successfully imported @atlas-dev/sdk object types');
 } catch (error) {
     console.warn('⚠️ Could not import @atlas-dev/sdk:', error.message);
@@ -18,6 +19,7 @@ try {
     A = undefined;
     FastenClinicalNotes = undefined;
     AiChatHistoryProduction = undefined;
+    AtlasIntraencounterProduction = undefined;
 }
 
 dotenv.config();
@@ -172,7 +174,8 @@ export {
     client, 
     host as osdkHost, 
     exportedOntologyRid as osdkOntologyRid,
-    A,                          // AtlasCarePatientProfile object type
-    FastenClinicalNotes,        // FastenClinicalNotes object type
-    AiChatHistoryProduction     // AiChatHistoryProduction object type
+    A,                              // AtlasCarePatientProfile object type
+    FastenClinicalNotes,            // FastenClinicalNotes object type
+    AiChatHistoryProduction,        // AiChatHistoryProduction object type
+    AtlasIntraencounterProduction   // AtlasIntraencounterProduction object type
 };

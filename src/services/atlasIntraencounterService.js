@@ -1,4 +1,4 @@
-import { client } from '../osdk/client.js';
+import { client, AtlasIntraencounterProduction } from '../osdk/client.js';
 import { logger } from '../utils/logger.js';
 import { isOk } from '@osdk/client';
 
@@ -168,7 +168,20 @@ export class AtlasIntraencounterService {
         queryParams.$includeRid = true;
       }
 
-      const result = await client(this.objectType).fetchPage(queryParams);
+      // Check if typed object is available
+      if (!AtlasIntraencounterProduction) {
+        throw new Error('AtlasIntraencounterProduction type not available - SDK not loaded');
+      }
+
+      // Use the typed OSDK v2 pattern
+      const result = await client(AtlasIntraencounterProduction)
+        .where({ userId: { $eq: userId } })
+        .orderBy({ timestamp: 'desc' })
+        .fetchPage({
+          $pageSize: pageSize,
+          $select: targetSelect,
+          $includeRid: includeRid
+        });
 
       return this._normalize(result.data || []);
     } catch (error) {
