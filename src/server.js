@@ -104,15 +104,16 @@ app.use('/', validateAuth0Token, usernamePropagation, createRateLimiter(50, redi
 app.use('/api/v1/debug', debugRouter);
 
 // API Routes with specific rate limits
+// Note: More specific routes must come before general routes to prevent shadowing
 app.use('/api/v1/patient', createRateLimiter(100, redisClient), patientRouter);
 app.use('/api/v1/patient-profile', createRateLimiter(50, redisClient), patientProfileRouter);
-app.use('/api/v1/foundry', createRateLimiter(50, redisClient), foundryRouter);
+app.use('/api/v1/foundry/datasets', createRateLimiter(50, redisClient), datasetsRouter);
+app.use('/api/v1/foundry', createRateLimiter(100, redisClient), foundryRouter); // Increased from 50 to 100 to accommodate media uploads + other operations
 app.use('/api/v1/medications', createRateLimiter(50, redisClient), medicationsRouter);
 app.use('/api/v1/history', createRateLimiter(50, redisClient), historyRouter);
 app.use('/api/v1/intraencounter', createRateLimiter(50, redisClient), intraencounterRouter);
 app.use('/api/v1/healthkit', createRateLimiter(50, redisClient), healthkitRouter);
-app.use('/api/v1/foundry/datasets', createRateLimiter(50, redisClient), datasetsRouter);
-app.use('/api/v1/foundry', createRateLimiter(50, redisClient), transcriptionSummaryRouter);
+app.use('/api/v1/foundry', createRateLimiter(100, redisClient), transcriptionSummaryRouter);
 app.use('/api/v1/fasten/datasets', createRateLimiter(50, redisClient), fastenDatasetsRouter);
 app.use('/api/v1/fasten/fhir', createRateLimiter(100, redisClient), fastenIngestionRouter);
 
