@@ -26,9 +26,8 @@ services:
       - key: FOUNDRY_CLIENT_SECRET
         sync: false
       - key: FOUNDRY_TOKEN
-        sync: false
-        # Note: This needs to be available during build for npm install
-        # Set in Render dashboard as a build-time environment variable
+        # Available during build for npm install to authenticate with Foundry registry
+        # Set value in Render dashboard
       - key: FOUNDRY_OAUTH_TOKEN_URL
         value: https://atlasengine.palantirfoundry.com/multipass/api/oauth2/token
       - key: REDIS_URL
