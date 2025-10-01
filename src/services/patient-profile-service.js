@@ -5,6 +5,7 @@
 
 import fetch from 'node-fetch';
 import { logger } from '../utils/logger.js';
+import { client as osdkClient, osdkOntologyRid } from '../osdk/client.js';
 
 const FOUNDRY_BASE_URL = process.env.FOUNDRY_BASE_URL || 'https://atlasengine.palantirfoundry.com/api';
 const ONTOLOGY_RID = process.env.FOUNDRY_ONTOLOGY_API_NAME || process.env.ONTOLOGY_RID || 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
@@ -71,71 +72,102 @@ class PatientProfileService {
 
     /**
      * Apply edit-a action to update patient profile
-     * Uses Foundry Ontology API v2
+     * Uses OSDK when available with REST fallback
      */
     async updateProfile(atlasId, profileData) {
+        const parameters = this.buildProfileParameters(atlasId, profileData);
+        const parameterKeys = Object.keys(parameters);
+
+        if (osdkClient && typeof osdkClient.ontology === 'function' && osdkOntologyRid) {
+            try {
+                logger.info('Applying edit-a action via OSDK', {
+                    atlasId,
+                    parameterKeys
+                });
+
+                const actionClient = osdkClient.ontology(osdkOntologyRid).action('edit-a');
+                const osdkResult = await actionClient.applyAction(parameters, { $returnEdits: true });
+
+                logger.info('Successfully applied edit-a action via OSDK', {
+                    atlasId,
+                    resultType: osdkResult?.type
+                });
+
+                return osdkResult;
+
+            } catch (error) {
+                logger.warn('OSDK edit-a action failed, using REST fallback', {
+                    atlasId,
+                    error: error.message
+                });
+            }
+        } else {
+            logger.warn('OSDK client unavailable for edit-a action, using REST fallback', {
+                atlasId
+            });
+        }
+
+        return await this.applyEditActionViaREST(parameters, atlasId, parameterKeys);
+    }
+
+    buildProfileParameters(atlasId, profileData) {
+        const parameters = {
+            A: atlasId
+        };
+
+        if (profileData.firstName !== undefined) parameters.first_name = profileData.firstName;
+        if (profileData.lastName !== undefined) parameters.last_name = profileData.lastName;
+        if (profileData.email !== undefined) parameters.email = profileData.email;
+        if (profileData.phoneNumber !== undefined) parameters.phonenumber = profileData.phoneNumber;
+        if (profileData.address !== undefined) parameters.address = profileData.address;
+        if (profileData.userId !== undefined) parameters.user_id = profileData.userId;
+
+        if (profileData.dateOfBirth !== undefined) parameters.date_of_birth = profileData.dateOfBirth;
+        if (profileData.birthSex !== undefined) parameters.birth_sex = profileData.birthSex;
+        if (profileData.pronouns !== undefined) parameters.pronouns = profileData.pronouns;
+
+        if (profileData.emergencyContactName !== undefined) {
+            parameters.emergency_contact_name = profileData.emergencyContactName;
+        }
+        if (profileData.emergencyContactPhone !== undefined) {
+            parameters.emergency_contact_phone = profileData.emergencyContactPhone;
+        }
+
+        if (profileData.familyMedicalHistory !== undefined) {
+            parameters.family_medical_history = Array.isArray(profileData.familyMedicalHistory)
+                ? profileData.familyMedicalHistory.join(', ')
+                : profileData.familyMedicalHistory;
+        }
+
+        if (profileData.healthKitAuthorized !== undefined) {
+            parameters.health_kit_authorized = String(profileData.healthKitAuthorized);
+        }
+        if (profileData.healthKitAuthorizationDate !== undefined) {
+            parameters.health_kit_authorization_date = profileData.healthKitAuthorizationDate;
+        }
+
+        if (profileData.photo !== undefined) {
+            parameters.photo = profileData.photo;
+        }
+
+        parameters.timestamp = new Date().toISOString();
+
+        return parameters;
+    }
+
+    async applyEditActionViaREST(parameters, atlasId, parameterKeys) {
         try {
             const url = `${FOUNDRY_BASE_URL}/v2/ontologies/${ONTOLOGY_RID}/actions/edit-a/apply`;
-            
-            // Prepare parameters - only include fields that have values
-            const parameters = {
-                A: atlasId, // Primary key
-            };
-
-            // Map incoming data to Foundry parameter IDs
-            if (profileData.firstName !== undefined) parameters.first_name = profileData.firstName;
-            if (profileData.lastName !== undefined) parameters.last_name = profileData.lastName;
-            if (profileData.email !== undefined) parameters.email = profileData.email;
-            if (profileData.phoneNumber !== undefined) parameters.phonenumber = profileData.phoneNumber;
-            if (profileData.address !== undefined) parameters.address = profileData.address;
-            if (profileData.userId !== undefined) parameters.user_id = profileData.userId;
-            
-            // New demographic fields
-            if (profileData.dateOfBirth !== undefined) parameters.date_of_birth = profileData.dateOfBirth;
-            if (profileData.birthSex !== undefined) parameters.birth_sex = profileData.birthSex;
-            if (profileData.pronouns !== undefined) parameters.pronouns = profileData.pronouns;
-            
-            // Emergency contact
-            if (profileData.emergencyContactName !== undefined) {
-                parameters.emergency_contact_name = profileData.emergencyContactName;
-            }
-            if (profileData.emergencyContactPhone !== undefined) {
-                parameters.emergency_contact_phone = profileData.emergencyContactPhone;
-            }
-            
-            // Medical history - convert array to string if needed
-            if (profileData.familyMedicalHistory !== undefined) {
-                parameters.family_medical_history = Array.isArray(profileData.familyMedicalHistory) 
-                    ? profileData.familyMedicalHistory.join(', ')
-                    : profileData.familyMedicalHistory;
-            }
-            
-            // HealthKit fields - convert boolean to string
-            if (profileData.healthKitAuthorized !== undefined) {
-                parameters.health_kit_authorized = String(profileData.healthKitAuthorized);
-            }
-            if (profileData.healthKitAuthorizationDate !== undefined) {
-                parameters.health_kit_authorization_date = profileData.healthKitAuthorizationDate;
-            }
-            
-            // Media reference for photo (if provided)
-            if (profileData.photo !== undefined) {
-                parameters.photo = profileData.photo;
-            }
-            
-            // Always update timestamp
-            parameters.timestamp = new Date().toISOString();
-
             const requestBody = {
                 parameters,
                 options: {
-                    returnEdits: 'ALL' // Return the updated object
+                    returnEdits: 'ALL'
                 }
             };
 
-            logger.info('Applying edit-a action', { 
-                atlasId, 
-                parameterKeys: Object.keys(parameters) 
+            logger.info('Applying edit-a action via REST', {
+                atlasId,
+                parameterKeys
             });
 
             const response = await fetch(url, {
@@ -149,27 +181,27 @@ class PatientProfileService {
 
             if (!response.ok) {
                 const errorText = await response.text();
-                logger.error('Failed to apply edit-a action', { 
-                    status: response.status, 
+                logger.error('Failed to apply edit-a action via REST', {
+                    status: response.status,
                     error: errorText,
-                    atlasId 
+                    atlasId
                 });
                 throw new Error(`Failed to update profile: ${response.statusText}`);
             }
 
             const result = await response.json();
-            
-            logger.info('Successfully applied edit-a action', { 
+
+            logger.info('Successfully applied edit-a action via REST', {
                 atlasId,
-                resultType: result.type 
+                resultType: result.type
             });
 
             return result;
 
         } catch (error) {
-            logger.error('Error updating profile', { 
+            logger.error('Error updating profile via REST', {
                 error: error.message,
-                atlasId 
+                atlasId
             });
             throw error;
         }

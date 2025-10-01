@@ -2,6 +2,7 @@ import express from 'express';
 import { validateTokenWithScopes } from '../middleware/auth0.js';
 import { FoundryService } from '../services/foundryService.js';
 import { logger } from '../utils/logger.js';
+import { parseTranscriptionSummaryResult } from '../utils/transcriptionSummary.js';
 
 const router = express.Router();
 
@@ -15,7 +16,7 @@ const foundryService = new FoundryService({
 });
 
 // Generate LLM summary from raw transcript
-router.post('/transcription-summary', validateTokenWithScopes(['execute:queries']), async (req, res, next) => {
+router.post('/', validateTokenWithScopes(['execute:queries']), async (req, res, next) => {
   try {
     const { auth0Id, rawTranscript } = req.body;
     
@@ -48,35 +49,11 @@ router.post('/transcription-summary', validateTokenWithScopes(['execute:queries'
       rawTranscript: rawTranscript.trim()
     });
     
-    // Parse result - Foundry query may return JSON string or object
-    let summary = '';
-    
-    if (typeof result === 'string') {
-      // Try to parse as JSON first (Foundry often returns JSON-encoded strings)
-      try {
-        const parsed = JSON.parse(result);
-        if (typeof parsed === 'object' && parsed.value) {
-          summary = parsed.value;
-        } else if (typeof parsed === 'string') {
-          summary = parsed;
-        } else {
-          summary = result; // Use original string if parsing doesn't help
-        }
-      } catch {
-        // Not JSON, use as-is
-        summary = result.trim();
-      }
-    } else if (result && typeof result === 'object') {
-      // Handle object response
-      summary = result.value || result.summary || result.result || result.data || JSON.stringify(result);
-    }
-    
-    if (!summary || !summary.trim()) {
+    const summary = parseTranscriptionSummaryResult(result);
+
+    if (!summary) {
       throw new Error('No summary returned from Foundry query');
     }
-    
-    // Clean up: ensure proper formatting
-    summary = summary.trim();
     
     logger.info('Transcription summary generated successfully', {
       auth0Id,

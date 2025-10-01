@@ -5,12 +5,15 @@ import { createConfidentialOauthClient } from '@osdk/oauth';
 // Import generated SDK object types
 // Note: These imports will only work after running 'npm install' with FOUNDRY_TOKEN set
 let A, FastenClinicalNotes, AiChatHistoryProduction, AtlasIntraencounterProduction;
+let Actions, Objects;
 try {
     const sdk = await import('@atlas-dev/sdk');
     A = sdk.A;
     FastenClinicalNotes = sdk.FastenClinicalNotes;
     AiChatHistoryProduction = sdk.AiChatHistoryProduction;
     AtlasIntraencounterProduction = sdk.AtlasIntraencounterProduction;
+    Actions = sdk.$Actions;
+    Objects = sdk.$Objects;
     console.log('✅ Successfully imported @atlas-dev/sdk object types');
 } catch (error) {
     console.warn('⚠️ Could not import @atlas-dev/sdk:', error.message);
@@ -20,6 +23,8 @@ try {
     FastenClinicalNotes = undefined;
     AiChatHistoryProduction = undefined;
     AtlasIntraencounterProduction = undefined;
+    Actions = undefined;
+    Objects = undefined;
 }
 
 dotenv.config();
@@ -111,21 +116,108 @@ if (bypassInitialization) {
         });
         
         const baseClient = createOSDKClient(host, ontologyRid, tokenProvider);
-        
+
+        const resolveObjectDefinition = (objectType) => {
+            if (objectType && typeof objectType === 'object' && objectType.type) {
+                return objectType;
+            }
+
+            if (typeof objectType === 'string' && Objects) {
+                const direct = Objects[objectType];
+                if (direct) {
+                    return direct;
+                }
+
+                const lowerCamel = objectType.charAt(0).toLowerCase() + objectType.slice(1);
+                if (Objects[lowerCamel]) {
+                    return Objects[lowerCamel];
+                }
+
+                const upperCamel = objectType.charAt(0).toUpperCase() + objectType.slice(1);
+                if (Objects[upperCamel]) {
+                    return Objects[upperCamel];
+                }
+            }
+
+            return undefined;
+        };
+
+        const hyphenToCamel = (value) => value.replace(/-([a-z])/gi, (_, ch) => ch.toUpperCase());
+
+        const resolveActionDefinition = (actionType) => {
+            if (actionType && typeof actionType === 'object' && actionType.type === 'action') {
+                return actionType;
+            }
+
+            if (typeof actionType === 'string' && Actions) {
+                const candidates = [
+                    actionType,
+                    actionType.replace(/-/g, ''),
+                    hyphenToCamel(actionType),
+                    hyphenToCamel(actionType.replace(/\./g, '-'))
+                ];
+
+                for (const candidate of candidates) {
+                    if (Actions[candidate]) {
+                        return Actions[candidate];
+                    }
+
+                    const lowerCamel = candidate.charAt(0).toLowerCase() + candidate.slice(1);
+                    if (Actions[lowerCamel]) {
+                        return Actions[lowerCamel];
+                    }
+
+                    const upperCamel = candidate.charAt(0).toUpperCase() + candidate.slice(1);
+                    if (Actions[upperCamel]) {
+                        return Actions[upperCamel];
+                    }
+                }
+            }
+
+            return undefined;
+        };
+
         // OSDK v2 returns a function - wrap it to provide both direct call and legacy .ontology() method
         if (baseClient && typeof baseClient === 'function') {
             // Create a wrapper that provides both patterns:
             // 1. Direct call: client(ObjectType).fetchPage() - OSDK v2 pattern
             // 2. Legacy: client.ontology(rid).objects(type) - for backward compatibility
-            client = Object.assign(baseClient, {
+            const wrappedClient = (input) => {
+                const resolved = resolveObjectDefinition(input) || resolveActionDefinition(input);
+
+                if (!resolved) {
+                    throw new Error(`Unable to resolve OSDK definition for input: ${String(input)}`);
+                }
+
+                return baseClient(resolved);
+            };
+
+            for (const key of Object.getOwnPropertyNames(baseClient)) {
+                if (key === 'length' || key === 'name' || key === 'prototype') {
+                    continue;
+                }
+                const descriptor = Object.getOwnPropertyDescriptor(baseClient, key);
+                if (descriptor) {
+                    Object.defineProperty(wrappedClient, key, descriptor);
+                }
+            }
+
+            client = Object.assign(wrappedClient, {
                 ontology: (rid) => ({
-                    objects: (objectType) => baseClient(objectType),
-                    action: (actionType) => ({
-                        applyAction: async (params, options) => {
-                            // For actions, we need to use the action API
-                            throw new Error('Action API not implemented via OSDK wrapper - use REST API fallback');
+                    objects: (objectType) => {
+                        const definition = resolveObjectDefinition(objectType);
+                        if (!definition) {
+                            throw new Error(`OSDK object definition not found for '${String(objectType)}'. Run npm install with FOUNDRY_TOKEN to generate SDK.`);
                         }
-                    })
+                        return baseClient(definition);
+                    },
+                    action: (actionType) => {
+                        const definition = resolveActionDefinition(actionType);
+                        if (!definition) {
+                            throw new Error(`OSDK action definition not found for '${String(actionType)}'. Run npm install with FOUNDRY_TOKEN to generate SDK.`);
+                        }
+                        return baseClient(definition);
+                    }
                 })
             });
             
@@ -180,5 +272,7 @@ export {
     A,                              // AtlasCarePatientProfile object type
     FastenClinicalNotes,            // FastenClinicalNotes object type
     AiChatHistoryProduction,        // AiChatHistoryProduction object type
-    AtlasIntraencounterProduction   // AtlasIntraencounterProduction object type
+    AtlasIntraencounterProduction,  // AtlasIntraencounterProduction object type
+    Actions as osdkActions,
+    Objects as osdkObjects
 };

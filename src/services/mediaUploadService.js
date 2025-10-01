@@ -155,10 +155,25 @@ export class MediaUploadService {
     // Get authentication token via direct REST API
     const token = await this.getFoundryToken();
 
-    // Use the MediaReference directly as returned from the upload endpoint
-    // The ontology media upload endpoint returns a properly formatted MediaReference
-    // that includes both the reference object and mimeType
-    const audiofileRef = params.audiofile;
+    // Extract the media reference from params.audiofile
+    // The upload endpoint returns { mimeType, reference }, and we need just the reference
+    let audiofileRef = params.audiofile;
+    
+    // If audiofile is an object with a 'reference' property, use that
+    // This handles the case where the full upload response is passed
+    if (audiofileRef && typeof audiofileRef === 'object' && audiofileRef.reference) {
+      audiofileRef = audiofileRef.reference;
+    }
+    
+    // Log what we're about to send to help debug
+    logger.info('MediaUploadService: Preparing audiofile parameter', {
+      audiofileType: typeof audiofileRef,
+      audiofileKeys: audiofileRef ? Object.keys(audiofileRef) : [],
+      audiofileValue: JSON.stringify(audiofileRef, null, 2),
+      hasMediaItemRid: !!audiofileRef?.mediaItemRid,
+      hasRid: !!audiofileRef?.$rid || !!audiofileRef?.rid,
+      userId: params.user_id
+    });
 
     const requestBody = {
       parameters: {
@@ -192,6 +207,7 @@ export class MediaUploadService {
         hasAudiofile: !!params.audiofile,
         hasTranscript: !!params.transcript,
         audiofileFormat: typeof params.audiofile,
+        summaryLength: (params.llm_summary || '').length,
         audiofileKeys: params.audiofile ? Object.keys(params.audiofile) : []
       });
 
@@ -319,15 +335,29 @@ export class MediaUploadService {
       mediaItemPath,
       userId,
       hasReference: !!result.reference,
-      mimeType: result.mimeType
+      mimeType: result.mimeType,
+      fullResponse: JSON.stringify(result, null, 2) // DEBUG: Log full response
     });
 
-    // The response contains a properly formatted MediaReference object
-    // that can be used directly in ontology actions
+    // The Foundry API response contains { mimeType, reference }
+    // The reference field itself is the MediaReference that should be passed to actions
+    // It should contain a mediaItemRid or a properly formatted media reference
+    
+    // Extract the actual reference object
+    const mediaReference = result.reference || result;
+    
+    logger.info('MediaUploadService: Extracted media reference', {
+      mediaReference: JSON.stringify(mediaReference, null, 2),
+      hasMediaItemRid: !!mediaReference?.mediaItemRid,
+      hasRid: !!mediaReference?.$rid || !!mediaReference?.rid,
+      userId
+    });
+
+    // Return the full Foundry response with the reference
+    // The reference field is what gets passed to the action as the MediaReference parameter
     return {
       ...result,
-      // Ensure backward compatibility - the reference field contains the MediaReference
-      reference: result.reference || result
+      reference: mediaReference
     };
   }
 

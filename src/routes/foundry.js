@@ -9,6 +9,7 @@ import { logger } from '../utils/logger.js';
 import { EncountersService, DEFAULT_ENCOUNTERS_CACHE_TTL_MS } from '../services/encountersService.js';
 import { getCacheService } from '../services/cacheService.js';
 import { mediaCoalescer } from '../utils/requestCoalescer.js';
+import { resolveLlmSummary } from '../utils/transcriptionSummary.js';
 
 const router = express.Router();
 const cacheService = getCacheService();
@@ -2405,6 +2406,16 @@ router.post('/ontologies/:ontologyId/actions/:actionId/apply', validateTokenWith
         ontologyApiName: foundryService.getApiOntologyRid()
       });
 
+      const llmSummary = await resolveLlmSummary({
+        existingSummary: parameters.llm_summary
+          || parameters.summary
+          || parameters.aiSummary,
+        transcript: parameters.transcript || parameters.rawTranscript,
+        auth0Id: parameters.auth0Id || parameters.user_id || req.user?.sub,
+        foundryService,
+        correlationId: req.correlationId
+      });
+
       const result = await mediaUploadService.createIntraencounterProduction({
         timestamp: parameters.timestamp,
         user_id: parameters.user_id || req.user?.sub,
@@ -2413,7 +2424,8 @@ router.post('/ontologies/:ontologyId/actions/:actionId/apply', validateTokenWith
         location: parameters.location,
         provider_name: parameters.provider_name,
         speciality: parameters.speciality,
-        hospital: parameters.hospital
+        hospital: parameters.hospital,
+        llm_summary: llmSummary
       });
 
       return res.json({
@@ -2695,6 +2707,16 @@ router.post('/intraencounter/upload-and-create', validateTokenWithScopes(['execu
     });
 
     // Step 2: Create intraencounter with media reference
+    const llmSummary = await resolveLlmSummary({
+      existingSummary: req.body?.llm_summary
+        || req.body?.summary
+        || req.body?.aiSummary,
+      transcript,
+      auth0Id: req.body?.auth0Id || userId,
+      foundryService,
+      correlationId: req.correlationId
+    });
+
     const intraencounterResult = await mediaUploadService.createIntraencounterProduction({
       timestamp: timestamp || new Date().toISOString(),
       user_id: userId,
@@ -2703,7 +2725,8 @@ router.post('/intraencounter/upload-and-create', validateTokenWithScopes(['execu
       location: location || '',
       provider_name: provider_name || '',
       speciality: speciality || '',
-      hospital: hospital || ''
+      hospital: hospital || '',
+      llm_summary: llmSummary
     });
 
     res.status(201).json({

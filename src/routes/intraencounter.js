@@ -1,7 +1,9 @@
 import express from 'express';
 import { validateTokenWithScopes } from '../middleware/auth0.js';
 import { MediaUploadService } from '../services/mediaUploadService.js';
+import { FoundryService } from '../services/foundryService.js';
 import { logger } from '../utils/logger.js';
+import { resolveLlmSummary } from '../utils/transcriptionSummary.js';
 
 const router = express.Router();
 
@@ -12,6 +14,14 @@ const mediaUploadService = new MediaUploadService({
   clientSecret: process.env.FOUNDRY_CLIENT_SECRET,
   tokenUrl: process.env.FOUNDRY_OAUTH_TOKEN_URL,
   ontologyApiName: 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194'
+});
+
+const foundryService = new FoundryService({
+  host: process.env.FOUNDRY_HOST,
+  clientId: process.env.FOUNDRY_CLIENT_ID,
+  clientSecret: process.env.FOUNDRY_CLIENT_SECRET,
+  tokenUrl: process.env.FOUNDRY_OAUTH_TOKEN_URL,
+  ontologyRid: process.env.FOUNDRY_ONTOLOGY_RID
 });
 
 function resolveUserId(req) {
@@ -79,6 +89,16 @@ router.post('/', validateTokenWithScopes(['execute:actions']), async (req, res, 
       correlationId: req.correlationId
     });
 
+    const llmSummary = await resolveLlmSummary({
+      existingSummary: req.body?.llm_summary
+        || req.body?.summary
+        || req.body?.aiSummary,
+      transcript,
+      auth0Id: req.body?.auth0Id || userId,
+      foundryService,
+      correlationId: req.correlationId
+    });
+
     const result = await mediaUploadService.createIntraencounterProduction({
       timestamp,
       user_id: userId,
@@ -87,7 +107,8 @@ router.post('/', validateTokenWithScopes(['execute:actions']), async (req, res, 
       location,
       provider_name: provider_name || providerName,
       speciality,
-      hospital
+      hospital,
+      llm_summary: llmSummary
     });
 
     res.status(201).json({
@@ -246,5 +267,3 @@ router.post('/v2/ontologies/:ontologyId/objects/AtlasIntraencounterProduction/se
 );
 
 export { router as intraencounterRouter };
-
-
