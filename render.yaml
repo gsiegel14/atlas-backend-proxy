@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: standard  # Upgraded from starter for better performance and timeout handling
     region: oregon
-    buildCommand: npm install
+    buildCommand: ./scripts/setup-npm-auth.sh && npm install
     startCommand: npm start
     healthCheckPath: /health
     autoDeploy: true
