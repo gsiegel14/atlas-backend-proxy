@@ -53,6 +53,13 @@ function normalizeTimestamp(input) {
 
 router.post('/chat', validateTokenWithScopes(['execute:actions']), async (req, res, next) => {
   try {
+    logger.debug('POST /api/v1/history/chat endpoint called', {
+      hasTranscript: !!req.body?.transcript,
+      transcriptLength: req.body?.transcript?.length || 0,
+      hasUserId: !!req.body?.user_id,
+      userId: req.body?.user_id,
+      correlationId: req.correlationId
+    });
     const transcript = typeof req.body?.transcript === 'string' ? req.body.transcript.trim() : '';
     if (!transcript) {
       return res.status(400).json({
