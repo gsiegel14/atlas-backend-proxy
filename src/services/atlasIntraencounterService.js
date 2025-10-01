@@ -29,6 +29,29 @@ export class AtlasIntraencounterService {
       includeRid = false
     } = options;
 
+    const defaultSelect = [
+      'transcript',
+      'summary',
+      'llm_summary',
+      'llmSummary',
+      'aiSummary',
+      'functionSummary',
+      'userId',
+      'user_id',
+      'timestamp',
+      'updatedAt',
+      'createdAt',
+      'ingested_at',
+      'providerName',
+      'provider_name',
+      'location',
+      'hospital',
+      'speciality',
+      'rid'
+    ];
+
+    const targetSelect = select && select.length > 0 ? select : defaultSelect;
+
     try {
       logger.info('Fetching intra-encounter page', {
         pageSize,
@@ -45,9 +68,7 @@ export class AtlasIntraencounterService {
         queryParams.$nextPageToken = nextPageToken;
       }
 
-      if (select && select.length > 0) {
-        queryParams.$select = select;
-      }
+      queryParams.$select = targetSelect;
 
       if (includeRid) {
         queryParams.$includeRid = true;
@@ -100,6 +121,29 @@ export class AtlasIntraencounterService {
       includeRid = false
     } = options;
 
+    const defaultSelect = [
+      'transcript',
+      'summary',
+      'llm_summary',
+      'llmSummary',
+      'aiSummary',
+      'functionSummary',
+      'userId',
+      'user_id',
+      'timestamp',
+      'updatedAt',
+      'createdAt',
+      'ingested_at',
+      'providerName',
+      'provider_name',
+      'location',
+      'hospital',
+      'speciality',
+      'rid'
+    ];
+
+    const targetSelect = select && select.length > 0 ? select : defaultSelect;
+
     try {
       logger.info('Searching intra-encounter productions for user', {
         userId,
@@ -118,9 +162,7 @@ export class AtlasIntraencounterService {
         }
       };
 
-      if (select && select.length > 0) {
-        queryParams.$select = select;
-      }
+      queryParams.$select = targetSelect;
 
       if (includeRid) {
         queryParams.$includeRid = true;
@@ -142,13 +184,36 @@ export class AtlasIntraencounterService {
   _normalize(entries) {
     return entries.map(entry => {
       if (entry && entry.properties) {
-        return entry;
+        return this._ensureSummaryFields(entry);
       }
-      return {
+      return this._ensureSummaryFields({
         ...entry,
         properties: entry ?? {}
-      };
+      });
     });
+  }
+
+  _ensureSummaryFields(entry) {
+    const properties = entry.properties ?? {};
+    if (!properties.summary) {
+      const summaryCandidate =
+        properties.llm_summary
+        || properties.llmSummary
+        || properties.aiSummary
+        || properties.functionSummary
+        || properties.summary_text;
+
+      if (summaryCandidate) {
+        entry = {
+          ...entry,
+          properties: {
+            ...properties,
+            summary: summaryCandidate
+          }
+        };
+      }
+    }
+    return entry;
   }
 }
 

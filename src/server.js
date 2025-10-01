@@ -14,10 +14,12 @@ import { createRateLimiter } from './middleware/rateLimiter.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { correlationId } from './middleware/correlationId.js';
 import { FoundryService } from './services/foundryService.js';
+import { initializeCacheService } from './services/cacheService.js';
 import { healthRouter } from './routes/health.js';
 import { publicDebugRouter } from './routes/publicDebug.js';
 import { patientRouter } from './routes/patient.js';
 import { foundryRouter } from './routes/foundry.js';
+import { osdkTestRouter } from './routes/osdk-test.js';
 import { debugRouter } from './routes/debug.js';
 import { medicationsRouter } from './routes/medications.js';
 import { historyRouter } from './routes/history.js';
@@ -50,6 +52,9 @@ try {
   // Continue without Redis for development
   redisClient = null;
 }
+
+// Initialize cache service
+const cacheService = initializeCacheService(redisClient);
 
 // Initialize Foundry service
 const foundryService = new FoundryService({
@@ -101,23 +106,34 @@ app.use('/api', validateAuth0Token, usernamePropagation);
 // Must come before the /api routes to match /v2/ontologies/... paths
 app.use('/', validateAuth0Token, usernamePropagation, createRateLimiter(50, redisClient), aiChatHistoryRouter);
 app.use('/', validateAuth0Token, usernamePropagation, createRateLimiter(50, redisClient), atlasIntraencounterHistoryRouter);
-app.use('/', validateAuth0Token, usernamePropagation, createRateLimiter(50, redisClient), intraencounterRouter);
 
 // Debug endpoints (protected)
 app.use('/api/v1/debug', debugRouter);
 
 // API Routes with specific rate limits
 // Note: More specific routes must come before general routes to prevent shadowing
-app.use('/api/v1/patient', createRateLimiter(100, redisClient), patientRouter);
-app.use('/api/v1/patient-profile', createRateLimiter(50, redisClient), patientProfileRouter);
-app.use('/api/v1/foundry/datasets', createRateLimiter(50, redisClient), datasetsRouter);
-app.use('/api/v1/foundry', createRateLimiter(100, redisClient), foundryRouter); // Increased from 50 to 100 to accommodate media uploads + other operations
-app.use('/api/v1/medications', createRateLimiter(50, redisClient), medicationsRouter);
-app.use('/api/v1/history', createRateLimiter(50, redisClient), historyRouter);
-app.use('/api/v1/intraencounter', createRateLimiter(50, redisClient), intraencounterRouter);
-app.use('/api/v1/healthkit', createRateLimiter(50, redisClient), healthkitRouter);
-app.use('/api/v1/foundry', createRateLimiter(100, redisClient), transcriptionSummaryRouter);
-app.use('/api/v1/fasten/datasets', createRateLimiter(50, redisClient), fastenDatasetsRouter);
+
+// Patient and profile endpoints
+app.use('/api/v1/patient', createRateLimiter(200, redisClient), patientRouter); // Increased for dashboard caching
+app.use('/api/v1/patient-profile', createRateLimiter(100, redisClient), patientProfileRouter);
+
+// Foundry endpoints - FIXED: Removed duplicate rate limiter
+// Increased to 300/min for read operations with caching support
+app.use('/api/v1/foundry/datasets', createRateLimiter(100, redisClient), datasetsRouter);
+app.use('/api/v1/foundry/transcription-summary', createRateLimiter(100, redisClient), transcriptionSummaryRouter);
+app.use('/api/v1/foundry', createRateLimiter(300, redisClient), foundryRouter); // Consolidated single rate limiter, increased limit
+
+// OSDK test endpoint
+app.use('/api/v1/osdk-test', createRateLimiter(50, redisClient), osdkTestRouter);
+
+// Other endpoints
+app.use('/api/v1/medications', createRateLimiter(100, redisClient), medicationsRouter);
+app.use('/api/v1/history', createRateLimiter(100, redisClient), historyRouter);
+app.use('/api/v1/intraencounter', createRateLimiter(100, redisClient), intraencounterRouter);
+app.use('/api/v1/healthkit', createRateLimiter(100, redisClient), healthkitRouter);
+
+// Fasten endpoints
+app.use('/api/v1/fasten/datasets', createRateLimiter(100, redisClient), fastenDatasetsRouter);
 app.use('/api/v1/fasten/fhir', createRateLimiter(100, redisClient), fastenIngestionRouter);
 
 // JWT-specific error handling (must come before general error handler)

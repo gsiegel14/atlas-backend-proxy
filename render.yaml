@@ -25,6 +25,8 @@ services:
         value: 5397e07e4277f7d7d5a081dce9645599
       - key: FOUNDRY_CLIENT_SECRET
         sync: false
+      - key: FOUNDRY_TOKEN
+        sync: false
       - key: FOUNDRY_OAUTH_TOKEN_URL
         value: https://atlasengine.palantirfoundry.com/multipass/api/oauth2/token
       - key: REDIS_URL

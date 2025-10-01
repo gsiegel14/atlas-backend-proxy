@@ -1,13 +1,17 @@
 import express from 'express';
 import fetch from 'node-fetch';
+import crypto from 'crypto';
 import { validateTokenWithScopes } from '../middleware/auth0.js';
 import { FoundryService } from '../services/foundryService.js';
 import { MediaUploadService } from '../services/mediaUploadService.js';
 import { osdkHost, osdkOntologyRid } from '../osdk/client.js';
 import { logger } from '../utils/logger.js';
 import { EncountersService, DEFAULT_ENCOUNTERS_CACHE_TTL_MS } from '../services/encountersService.js';
+import { getCacheService } from '../services/cacheService.js';
+import { mediaCoalescer } from '../utils/requestCoalescer.js';
 
 const router = express.Router();
+const cacheService = getCacheService();
 
 const CLINICAL_NOTES_CACHE_TTL_MS = 30 * 1000;
 const CONDITIONS_CACHE_TTL_MS = 30 * 1000;
@@ -2138,10 +2142,12 @@ router.get('/media/:mediaSetRid/items/:mediaItemRid/reference', validateTokenWit
   }
 });
 
-// Get media content (actual image data)
+// Get media content (actual image data) - WITH CACHING
 router.get('/media/:mediaSetRid/items/:mediaItemRid/content', validateTokenWithScopes(['read:patient']), async (req, res, next) => {
   try {
     const { mediaSetRid, mediaItemRid } = req.params;
+    const cacheKey = `${mediaSetRid}:${mediaItemRid}`;
+    const startTime = Date.now();
 
     logger.info('Fetching media content', {
       mediaSetRid,
@@ -2150,14 +2156,67 @@ router.get('/media/:mediaSetRid/items/:mediaItemRid/content', validateTokenWithS
       correlationId: req.correlationId
     });
 
-    const mediaContent = await foundryService.getMediaContent(mediaSetRid, mediaItemRid);
+    // Use request coalescer to prevent duplicate concurrent requests
+    const mediaContent = await mediaCoalescer.coalesce(cacheKey, async () => {
+      // Check cache first
+      const cached = await cacheService.getMedia(mediaSetRid, mediaItemRid);
+      if (cached) {
+        logger.info('Media cache hit', {
+          mediaSetRid,
+          mediaItemRid,
+          responseTime: Date.now() - startTime,
+          correlationId: req.correlationId
+        });
+        return cached;
+      }
 
-    // If the content is binary image data, set appropriate headers
-    if (mediaContent && mediaContent.contentType) {
-      res.setHeader('Content-Type', mediaContent.contentType);
+      // Cache miss - fetch from Foundry
+      logger.info('Media cache miss, fetching from Foundry', {
+        mediaSetRid,
+        mediaItemRid,
+        correlationId: req.correlationId
+      });
+
+      const freshContent = await foundryService.getMediaContent(mediaSetRid, mediaItemRid);
+
+      // Cache the content
+      await cacheService.setMedia(
+        mediaSetRid, 
+        mediaItemRid, 
+        freshContent, 
+        freshContent.contentType || 'application/octet-stream'
+      );
+
+      return freshContent;
+    });
+
+    // Generate ETag for conditional requests
+    const etag = crypto.createHash('md5')
+      .update(Buffer.isBuffer(mediaContent.content) ? mediaContent.content : Buffer.from(mediaContent.content))
+      .digest('hex');
+
+    // Set cache headers
+    res.set({
+      'Content-Type': mediaContent.contentType || 'application/octet-stream',
+      'Cache-Control': 'private, max-age=86400, immutable',
+      'ETag': `"${etag}"`,
+      'X-Content-Type-Options': 'nosniff'
+    });
+
+    // Check if client has cached version
+    if (req.headers['if-none-match'] === `"${etag}"`) {
+      return res.status(304).end();
     }
 
-    res.send(mediaContent);
+    logger.info('Media content served', {
+      mediaSetRid,
+      mediaItemRid,
+      responseTime: Date.now() - startTime,
+      size: mediaContent.content?.length || 0,
+      correlationId: req.correlationId
+    });
+
+    res.send(mediaContent.content || mediaContent);
 
   } catch (error) {
     logger.error('Failed to fetch media content:', {

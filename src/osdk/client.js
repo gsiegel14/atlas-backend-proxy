@@ -2,6 +2,22 @@ import dotenv from 'dotenv';
 import { createClient as createOSDKClient } from '@osdk/client';
 import { createConfidentialOauthClient } from '@osdk/oauth';
 
+// Import generated SDK object types
+// Note: These imports will only work after running 'npm install' with FOUNDRY_TOKEN set
+let A, FastenClinicalNotes;
+try {
+    const sdk = await import('@atlas-dev/sdk');
+    A = sdk.A;
+    FastenClinicalNotes = sdk.FastenClinicalNotes;
+    console.log('✅ Successfully imported @atlas-dev/sdk object types');
+} catch (error) {
+    console.warn('⚠️ Could not import @atlas-dev/sdk:', error.message);
+    console.warn('⚠️ OSDK will operate in fallback mode. Run: npm install with FOUNDRY_TOKEN set');
+    // Set to undefined so we can check later
+    A = undefined;
+    FastenClinicalNotes = undefined;
+}
+
 dotenv.config();
 
 const DEFAULT_HOST = 'https://atlasengine.palantirfoundry.com';
@@ -23,9 +39,12 @@ console.log('OSDK Client Configuration:', {
     hasClientSecret: !!process.env.FOUNDRY_CLIENT_SECRET
 });
 
+// Scopes from Foundry documentation (includes admin scopes)
 const DEFAULT_SCOPES = [
     'api:use-ontologies-read',
     'api:use-ontologies-write',
+    'api:use-admin-read',           // Added from Foundry docs
+    'api:use-admin-write',          // Added from Foundry docs
     'api:use-datasets-read',
     'api:use-datasets-write',
     'api:use-filesystem-read',
@@ -77,7 +96,7 @@ if (bypassInitialization) {
         ontologyRid: ontologyRid
     });
 
-    // createClient returns a client object with ontology methods
+    // createClient returns a client function that wraps the ontology
     try {
         console.log('Creating OSDK client with:', { 
             host, 
@@ -86,17 +105,30 @@ if (bypassInitialization) {
             hasClientSecret: !!process.env.FOUNDRY_CLIENT_SECRET
         });
         
-        client = createOSDKClient(host, ontologyRid, tokenProvider);
+        const baseClient = createOSDKClient(host, ontologyRid, tokenProvider);
         
-        // Validate that the client has the expected structure
-        if (client && typeof client.ontology === 'function') {
-            console.log('OSDK client created successfully with ontology method');
-        } else {
-            console.warn('OSDK client created but missing expected methods:', {
-                clientType: typeof client,
-                hasOntology: typeof client?.ontology,
-                clientKeys: client ? Object.keys(client) : []
+        // OSDK v2 returns a function - wrap it to provide .ontology() method for compatibility
+        if (baseClient && typeof baseClient === 'function') {
+            // Create a wrapper that provides both direct call and .ontology() method
+            client = Object.assign(baseClient, {
+                ontology: (rid) => baseClient  // Return the base client for any ontology RID
             });
+            
+            console.log('✅ OSDK client created and wrapped successfully');
+            
+            // Check if SDK types are available
+            if (A && FastenClinicalNotes) {
+                console.log('✅ OSDK object types available: A, FastenClinicalNotes');
+            } else {
+                console.warn('⚠️ OSDK client created but SDK types not available');
+                console.warn('⚠️ Install @atlas-dev/sdk with: FOUNDRY_TOKEN=xxx npm install');
+            }
+        } else {
+            console.warn('⚠️ OSDK client created but has unexpected structure:', {
+                clientType: typeof baseClient,
+                clientKeys: baseClient ? Object.keys(baseClient).slice(0, 5) : []
+            });
+            client = null;
         }
     } catch (error) {
         console.error('WARNING: Failed to create OSDK client (continuing with REST API only):', {
@@ -121,4 +153,11 @@ if (!bypassInitialization && ontologyRid.startsWith('ri.ontology.main.ontology.'
     exportedOntologyRid = `ontology-${uuid}`;
 }
 
-export { client, host as osdkHost, exportedOntologyRid as osdkOntologyRid };
+// Export client, host, ontology RID, and object types
+export { 
+    client, 
+    host as osdkHost, 
+    exportedOntologyRid as osdkOntologyRid,
+    A,                          // AtlasCarePatientProfile object type
+    FastenClinicalNotes        // FastenClinicalNotes object type
+};

@@ -1,11 +1,13 @@
 import express from 'express';
 import { validateTokenWithScopes } from '../middleware/auth0.js';
 import { FoundryService } from '../services/foundryService.js';
-import { client as osdkClient, osdkHost, osdkOntologyRid } from '../osdk/client.js';
+import { client as osdkClient, A, osdkHost, osdkOntologyRid } from '../osdk/client.js';
 import { logger } from '../utils/logger.js';
 import { createConfidentialOauthClient } from '@osdk/oauth';
+import { getCacheService } from '../services/cacheService.js';
 
 const router = express.Router();
+const cacheService = getCacheService();
 
 // Initialize Foundry service
 const foundryService = new FoundryService({
@@ -129,10 +131,11 @@ async function searchPatientProfileViaREST(value, fieldCandidates, limit, correl
   }
 }
 
-// Get patient dashboard
+// Get patient dashboard - WITH CACHING
 router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboard']), async (req, res, next) => {
   try {
     const { patientId } = req.body;
+    const startTime = Date.now();
 
     let effectivePatientId = patientId;
 
@@ -148,9 +151,9 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
         logger.warn('OSDK client not available for patient ID resolution, skipping', {
           correlationId: req.correlationId
         });
-      } else {
+      } else if (A) {  // Check if SDK type is available
         try {
-          const patientObjects = osdkClient('A');
+          const patientObjects = osdkClient(A);  // Use typed import
 
           for (const identifier of identifierCandidates) {
             try {
@@ -210,7 +213,18 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
       });
     }
 
-    logger.info('Fetching patient dashboard', {
+    // Check cache first
+    const cached = await cacheService.getDashboard(effectivePatientId);
+    if (cached) {
+      logger.info('Dashboard cache hit', {
+        patientId: effectivePatientId,
+        responseTime: Date.now() - startTime,
+        correlationId: req.correlationId
+      });
+      return res.json(cached);
+    }
+
+    logger.info('Dashboard cache miss, fetching from Foundry', {
       patientId: effectivePatientId,
       user: req.user.sub,
       username: req.context?.username,
@@ -235,9 +249,9 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
     // Try to get patient profile data - OSDK first, then REST API fallback
     let profileFound = false;
     
-    if (osdkClient && typeof osdkClient === 'function') {
+    if (osdkClient && typeof osdkClient === 'function' && A) {  // Check if SDK type is available
       try {
-        const patientObjects = osdkClient('A');
+        const patientObjects = osdkClient(A);  // Use typed import
         const page = await patientObjects.where({ user_id: { $eq: effectivePatientId } }).fetchPage({ $pageSize: 1 });
         
         if (page.data.length > 0) {
@@ -359,6 +373,9 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
             hasFirstName: !!patientProfile.firstName,
             hasLastName: !!patientProfile.lastName,
             hasPhoto: !!profilePhotoUrl,
+            profilePhotoUrl: profilePhotoUrl,
+            mediaSetRid: enrichedProperties.profilePhotoMediaSetRid,
+            mediaItemRid: enrichedProperties.profilePhotoMediaItemRid,
             correlationId: req.correlationId
           });
         }
@@ -415,12 +432,31 @@ router.post('/dashboard', validateTokenWithScopes(['read:patient', 'read:dashboa
       });
     }
 
-    res.json({
+    // Log the actual profilePhotoUrl being sent in the response
+    logger.info('Sending dashboard response', {
+      profilePhotoUrl: dashboardData?.properties?.profilePhotoUrl,
+      hasProfilePhotoUrl: !!dashboardData?.properties?.profilePhotoUrl,
+      correlationId: req.correlationId
+    });
+
+    const response = {
       success: true,
       data: dashboardData,
       timestamp: new Date().toISOString(),
       correlationId: req.correlationId
+    };
+
+    // Cache the response
+    await cacheService.setDashboard(effectivePatientId, response);
+
+    logger.info('Dashboard fetched and cached', {
+      patientId: effectivePatientId,
+      responseTime: Date.now() - startTime,
+      hasPhoto: !!dashboardData.properties?.profilePhotoUrl,
+      correlationId: req.correlationId
     });
+
+    res.json(response);
 
   } catch (error) {
     logger.error('Failed to fetch patient dashboard:', {
@@ -492,9 +528,9 @@ router.post('/profile/search', validateTokenWithScopes(['read:patient']), async 
         correlationId: req.correlationId
       });
       useRestApiFallback = true;
-    } else {
+    } else if (A) {  // Check if SDK type is available
       try {
-        patientObjects = osdkClient('A');
+        patientObjects = osdkClient(A);  // Use typed import
       } catch (error) {
         logger.warn('OSDK client failed, falling back to REST API', {
           error: error.message,
