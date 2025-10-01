@@ -1,4 +1,4 @@
-import { client, AtlasIntraencounterProduction } from '../osdk/client.js';
+import { client, AtlasIntraencounterProduction, osdkOntologyRid } from '../osdk/client.js';
 import { logger } from '../utils/logger.js';
 import { isOk } from '@osdk/client';
 
@@ -10,7 +10,7 @@ import { isOk } from '@osdk/client';
 export class AtlasIntraencounterService {
   constructor() {
     this.objectType = 'AtlasIntraencounterProduction';
-    this.ontologyRid = 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+    this.ontologyRid = osdkOntologyRid;
   }
 
   /**
@@ -185,12 +185,26 @@ export class AtlasIntraencounterService {
 
       return this._normalize(result.data || []);
     } catch (error) {
-      logger.error('Error searching intra-encounter productions', {
+      logger.error('OSDK search failed for intra-encounter, falling back to REST API', {
         userId,
-        error: error.message,
-        stack: error.stack
+        error: error.message
       });
-      throw error;
+      
+      // Fallback to REST API if OSDK fails (e.g., 404 if object type doesn't exist)
+      try {
+        return await this.searchByUserIdViaREST(userId, {
+          pageSize,
+          select: targetSelect,
+          includeRid
+        });
+      } catch (restError) {
+        logger.error('Both OSDK and REST API search failed for intra-encounter', {
+          userId,
+          osdkError: error.message,
+          restError: restError.message
+        });
+        throw restError;
+      }
     }
   }
 

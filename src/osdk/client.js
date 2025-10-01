@@ -162,12 +162,15 @@ if (bypassInitialization) {
     }
 }
 
-// Export the converted API name for use in other services
-let exportedOntologyRid = ontologyRid;
-if (!bypassInitialization && ontologyRid.startsWith('ri.ontology.main.ontology.')) {
-    const uuid = ontologyRid.replace('ri.ontology.main.ontology.', '');
-    exportedOntologyRid = `ontology-${uuid}`;
-}
+// Export the API name for REST API calls - use explicit FOUNDRY_ONTOLOGY_API_NAME if provided
+// This allows using a different ontology for REST API vs OSDK client
+const exportedOntologyRid = process.env.FOUNDRY_ONTOLOGY_API_NAME || (() => {
+    if (!bypassInitialization && ontologyRid.startsWith('ri.ontology.main.ontology.')) {
+        const uuid = ontologyRid.replace('ri.ontology.main.ontology.', '');
+        return `ontology-${uuid}`;
+    }
+    return ontologyRid;
+})();
 
 // Export client, host, ontology RID, and object types
 export { 
