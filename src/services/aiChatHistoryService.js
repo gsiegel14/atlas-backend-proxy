@@ -1,18 +1,28 @@
 import { client } from '../osdk/client.js';
 import { logger } from '../utils/logger.js';
 import { isOk } from '@osdk/client';
+import { FoundryService } from './foundryService.js';
 
 /**
  * Service for managing AI Chat History using the new OSDK v2 client pattern
  * Following the format: GET /v2/ontologies/ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194/objects/AiChatHistoryProduction
  */
 export class AiChatHistoryService {
-  constructor() {
+  constructor(foundryService = null) {
     // Import the AiChatHistoryProduction object type from the SDK
     // This would normally be imported from "@atlas-dev/sdk" but we'll use a generic approach
     this.objectType = 'AiChatHistoryProduction';
     this.actionType = 'create-ai-chat-history-production';
-    this.ontologyRid = 'ontology-151e0d3d-719c-464d-be5c-a6dc9f53d194';
+    
+    // Use FoundryService for consistent ontology RID handling (same as procedures)
+    this.foundryService = foundryService || new FoundryService();
+  }
+  
+  /**
+   * Get the correct ontology RID using the same pattern as procedures
+   */
+  getOntologyRid() {
+    return this.foundryService.getApiOntologyRid();
   }
 
   /**
@@ -73,7 +83,12 @@ export class AiChatHistoryService {
    * Create chat history using OSDK client
    */
   async createChatHistoryViaOSDK({ userId, transcript, timestamp }) {
-    const actionClient = client.ontology(this.ontologyRid).action(this.actionType);
+    // Use the OSDK RID format (not the API format)
+    const osdkRid = process.env.FOUNDRY_ONTOLOGY_RID;
+    if (!osdkRid) {
+      throw new Error('FOUNDRY_ONTOLOGY_RID environment variable is required for OSDK');
+    }
+    const actionClient = client.ontology(osdkRid).action(this.actionType);
     
     const result = await actionClient.applyAction(
       {
@@ -130,8 +145,12 @@ export class AiChatHistoryService {
     // Get access token
     const token = await this.getFoundryAccessToken();
     
-    // Make direct API call to Foundry
-    const actionUrl = `${foundryHost}/api/v2/ontologies/${this.ontologyRid}/actions/${this.actionType}/apply`;
+    // Make direct API call to Foundry using correct ontology RID
+    const ontologyRid = this.getOntologyRid();
+    if (!ontologyRid) {
+      throw new Error('Ontology RID is not configured');
+    }
+    const actionUrl = `${foundryHost}/api/v2/ontologies/${ontologyRid}/actions/${this.actionType}/apply`;
     
     logger.info('Making direct REST API call to Foundry', {
       actionUrl: actionUrl.replace(foundryHost, '[FOUNDRY_HOST]'),
@@ -521,9 +540,13 @@ export class AiChatHistoryService {
           queryParams.$includeRid = true;
         }
 
-        // Execute using the OSDK client ontology method
+        // Execute using the OSDK client ontology method with correct RID
         try {
-          const objectSet = client.ontology(this.ontologyRid).objects(this.objectType);
+          const osdkRid = process.env.FOUNDRY_ONTOLOGY_RID;
+          if (!osdkRid) {
+            throw new Error('FOUNDRY_ONTOLOGY_RID environment variable is required for OSDK');
+          }
+          const objectSet = client.ontology(osdkRid).objects(this.objectType);
           const result = await objectSet.fetchPage(queryParams);
 
           logger.info('Found AI chat history entries for user via OSDK', {
@@ -576,7 +599,11 @@ export class AiChatHistoryService {
     const foundryHost = process.env.FOUNDRY_HOST || 'https://atlasengine.palantirfoundry.com';
     const token = await this.getFoundryAccessToken();
     
-    const searchUrl = `${foundryHost}/api/v2/ontologies/${this.ontologyRid}/objects/${this.objectType}/search`;
+    const ontologyRid = this.getOntologyRid();
+    if (!ontologyRid) {
+      throw new Error('Ontology RID is not configured');
+    }
+    const searchUrl = `${foundryHost}/api/v2/ontologies/${ontologyRid}/objects/${this.objectType}/search`;
     
     logger.info('Searching AI chat history via REST API', {
       searchUrl: searchUrl.replace(foundryHost, '[FOUNDRY_HOST]'),

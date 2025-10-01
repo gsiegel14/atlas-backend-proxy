@@ -77,21 +77,39 @@ if (bypassInitialization) {
         ontologyRid: ontologyRid
     });
 
-    // createClient returns a function that can be invoked with an object type export from the SDK
+    // createClient returns a client object with ontology methods
     try {
-        console.log('Creating OSDK client with:', { host, ontologyRid: ontologyRid.substring(0, 30) + '...' });
+        console.log('Creating OSDK client with:', { 
+            host, 
+            ontologyRid: ontologyRid.substring(0, 30) + '...',
+            hasClientId: !!process.env.FOUNDRY_CLIENT_ID,
+            hasClientSecret: !!process.env.FOUNDRY_CLIENT_SECRET
+        });
+        
         client = createOSDKClient(host, ontologyRid, tokenProvider);
-        console.log('OSDK client created successfully');
+        
+        // Validate that the client has the expected structure
+        if (client && typeof client.ontology === 'function') {
+            console.log('OSDK client created successfully with ontology method');
+        } else {
+            console.warn('OSDK client created but missing expected methods:', {
+                clientType: typeof client,
+                hasOntology: typeof client?.ontology,
+                clientKeys: client ? Object.keys(client) : []
+            });
+        }
     } catch (error) {
         console.error('WARNING: Failed to create OSDK client (continuing with REST API only):', {
             error: error.message,
+            stack: error.stack,
             host,
             ontologyRid,
             ontologyRidLength: ontologyRid.length,
-            ontologyRidType: typeof ontologyRid
+            ontologyRidType: typeof ontologyRid,
+            hasCredentials: !!(process.env.FOUNDRY_CLIENT_ID && process.env.FOUNDRY_CLIENT_SECRET)
         });
         // Don't throw - allow the service to start with REST API endpoints only
-        client = {};
+        client = null; // Use null instead of {} to make checks clearer
         console.log('OSDK client disabled - REST API endpoints will still work');
     }
 }
