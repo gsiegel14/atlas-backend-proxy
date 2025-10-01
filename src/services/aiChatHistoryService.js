@@ -32,65 +32,186 @@ export class AiChatHistoryService {
       throw new Error('transcript cannot be empty');
     }
 
-    logger.info('Creating AI chat history via OSDK action', {
+    const finalTimestamp = timestamp || new Date().toISOString();
+
+    logger.info('Creating AI chat history', {
       userId,
       transcriptLength: transcript.length,
-      timestamp
+      timestamp: finalTimestamp
     });
 
+    // Try OSDK first, fallback to REST API
     try {
-      // Use the OSDK client to apply the action
-      // Format: /v2/ontologies/{ontologyRid}/actions/{actionType}/apply
-      const actionClient = client.ontology(this.ontologyRid).action(this.actionType);
-      
-      const result = await actionClient.applyAction(
-        {
-          user_id: userId,
-          transcript: transcript.trim(),
-          timestamp: timestamp || new Date().toISOString()
-        },
-        {
-          $returnEdits: true
-        }
-      );
-
-      if (result && result.type === "edits") {
-        const updatedObject = result.editedObjectTypes?.[0];
-
-        logger.info('Successfully created AI chat history', {
-          userId,
-          objectId: updatedObject?.primaryKey,
-          transcriptLength: transcript.length
-        });
-
-        return {
-          success: true,
-          chatId: updatedObject?.primaryKey || `chat_${Date.now()}`,
-          userId,
-          timestamp: timestamp || new Date().toISOString()
-        };
+      // Check if OSDK client is properly initialized
+      if (client && typeof client.ontology === 'function') {
+        logger.info('Attempting OSDK client approach');
+        return await this.createChatHistoryViaOSDK({ userId, transcript, timestamp: finalTimestamp });
       } else {
-        logger.warn('Unexpected result type from OSDK action', {
-          resultType: result?.type
-        });
-
-        // Fallback success response
-        return {
-          success: true,
-          chatId: `chat_${Date.now()}`,
-          userId,
-          timestamp: timestamp || new Date().toISOString()
-        };
+        logger.warn('OSDK client not available, using REST API fallback');
+        return await this.createChatHistoryViaREST({ userId, transcript, timestamp: finalTimestamp });
       }
     } catch (error) {
-      logger.error('Failed to create AI chat history via OSDK', {
+      logger.error('OSDK approach failed, falling back to REST API', {
         error: error.message,
-        stack: error.stack,
         userId
       });
-
-      throw error;
+      
+      try {
+        return await this.createChatHistoryViaREST({ userId, transcript, timestamp: finalTimestamp });
+      } catch (restError) {
+        logger.error('Both OSDK and REST API approaches failed', {
+          osdkError: error.message,
+          restError: restError.message,
+          userId
+        });
+        throw restError;
+      }
     }
+  }
+
+  /**
+   * Create chat history using OSDK client
+   */
+  async createChatHistoryViaOSDK({ userId, transcript, timestamp }) {
+    const actionClient = client.ontology(this.ontologyRid).action(this.actionType);
+    
+    const result = await actionClient.applyAction(
+      {
+        user_id: userId,
+        transcript: transcript.trim(),
+        timestamp: timestamp
+      },
+      {
+        $returnEdits: true
+      }
+    );
+
+    if (result && result.type === "edits") {
+      const updatedObject = result.editedObjectTypes?.[0];
+
+      logger.info('Successfully created AI chat history via OSDK', {
+        userId,
+        objectId: updatedObject?.primaryKey,
+        transcriptLength: transcript.length
+      });
+
+      return {
+        success: true,
+        chatId: updatedObject?.primaryKey || `chat_${Date.now()}`,
+        userId,
+        timestamp
+      };
+    } else {
+      logger.warn('Unexpected result type from OSDK action', {
+        resultType: result?.type
+      });
+
+      return {
+        success: true,
+        chatId: `chat_${Date.now()}`,
+        userId,
+        timestamp
+      };
+    }
+  }
+
+  /**
+   * Create chat history using direct REST API calls
+   */
+  async createChatHistoryViaREST({ userId, transcript, timestamp }) {
+    const foundryHost = process.env.FOUNDRY_HOST || 'https://atlasengine.palantirfoundry.com';
+    const clientId = process.env.FOUNDRY_CLIENT_ID;
+    const clientSecret = process.env.FOUNDRY_CLIENT_SECRET;
+
+    if (!clientId || !clientSecret) {
+      throw new Error('FOUNDRY_CLIENT_ID and FOUNDRY_CLIENT_SECRET are required for REST API fallback');
+    }
+
+    // Get access token
+    const token = await this.getFoundryAccessToken();
+    
+    // Make direct API call to Foundry
+    const actionUrl = `${foundryHost}/api/v2/ontologies/${this.ontologyRid}/actions/${this.actionType}/apply`;
+    
+    logger.info('Making direct REST API call to Foundry', {
+      actionUrl: actionUrl.replace(foundryHost, '[FOUNDRY_HOST]'),
+      userId
+    });
+
+    const response = await fetch(actionUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        parameters: {
+          user_id: userId,
+          transcript: transcript.trim(),
+          timestamp: timestamp
+        },
+        options: {
+          returnEdits: 'ALL'
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error('Foundry REST API call failed', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText,
+        userId
+      });
+      throw new Error(`Foundry API error: ${response.status} - ${errorText}`);
+    }
+
+    const result = await response.json();
+    
+    logger.info('Successfully created AI chat history via REST API', {
+      userId,
+      transcriptLength: transcript.length
+    });
+
+    return {
+      success: true,
+      chatId: result.edits?.[0]?.primaryKey || `chat_${Date.now()}`,
+      userId,
+      timestamp,
+      foundryResult: result
+    };
+  }
+
+  /**
+   * Get Foundry access token using client credentials
+   */
+  async getFoundryAccessToken() {
+    const foundryHost = process.env.FOUNDRY_HOST || 'https://atlasengine.palantirfoundry.com';
+    const clientId = process.env.FOUNDRY_CLIENT_ID;
+    const clientSecret = process.env.FOUNDRY_CLIENT_SECRET;
+    const tokenUrl = process.env.FOUNDRY_OAUTH_TOKEN_URL || `${foundryHost}/multipass/api/oauth2/token`;
+
+    const response = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`
+      },
+      body: new URLSearchParams({
+        grant_type: 'client_credentials',
+        scope: 'api:use-ontologies-write api:use-ontologies-read'
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to get Foundry access token: ${response.status} - ${errorText}`);
+    }
+
+    const tokenData = await response.json();
+    return tokenData.access_token;
   }
 
   /**
@@ -261,8 +382,14 @@ export class AiChatHistoryService {
         queryParams.$includeRid = true;
       }
 
+      // Check if OSDK client is properly initialized
+      if (!client || typeof client.ontology !== 'function') {
+        throw new Error('OSDK client not properly initialized');
+      }
+
       // Use the OSDK client to fetch the page directly (throws on error)
-      const result = await client(this.objectType).fetchPage(queryParams);
+      const objectSet = client.ontology(this.ontologyRid).objects(this.objectType);
+      const result = await objectSet.fetchPage(queryParams);
 
       logger.info('Successfully fetched AI chat history page (direct)', {
         itemCount: result.data.length,
@@ -364,55 +491,139 @@ export class AiChatHistoryService {
       includeRid = false
     } = options;
 
+    // Try OSDK first, fallback to REST API
     try {
-      logger.info('Searching AI chat history by user ID via OSDK where clause', {
-        userId,
-        pageSize,
-        select,
-        includeRid
-      });
+      // Check if OSDK client is properly initialized
+      if (client && typeof client.ontology === 'function') {
+        logger.info('Searching AI chat history by user ID via OSDK where clause', {
+          userId,
+          pageSize,
+          select,
+          includeRid
+        });
 
-      // Use OSDK where clause for efficient server-side filtering
-      const objectSetClient = client.ontology(this.ontologyRid)
-                                   .objects(this.objectType);
+        // Build the query with where clause (OSDK fetchPage supports server-side filtering)
+        const queryParams = {
+          $where: {
+            userId: { $eq: userId }
+          },
+          $pageSize: pageSize,
+          $orderBy: {
+            timestamp: 'desc'
+          }
+        };
 
-      // Build the query with where clause
-      const queryParams = {
-        $where: {
-          userId: { $eq: userId }
-        },
-        $pageSize: pageSize,
-        $orderBy: {
-          timestamp: 'desc'  // Most recent first
+        if (select && select.length > 0) {
+          queryParams.$select = select;
         }
-      };
 
-      if (select && select.length > 0) {
-        queryParams.$select = select;
+        if (includeRid) {
+          queryParams.$includeRid = true;
+        }
+
+        // Execute using the OSDK client ontology method
+        try {
+          const objectSet = client.ontology(this.ontologyRid).objects(this.objectType);
+          const result = await objectSet.fetchPage(queryParams);
+
+          logger.info('Found AI chat history entries for user via OSDK', {
+            userId,
+            entryCount: result.data?.length || 0
+          });
+
+          return result.data || [];
+        } catch (osdkError) {
+          logger.error('OSDK client call failed', {
+            error: osdkError.message,
+            clientType: typeof client,
+            hasOntology: typeof client?.ontology
+          });
+          throw osdkError; // Re-throw to trigger the outer catch block
+        }
+      } else {
+        logger.warn('OSDK client not available for search, using REST API fallback');
+        return await this.searchByUserIdViaREST(userId, options);
       }
-
-      if (includeRid) {
-        queryParams.$includeRid = true;
-      }
-
-      // Execute the search query
-      const result = await objectSetClient.fetchPage(queryParams);
-
-      logger.info('Found AI chat history entries for user via OSDK', {
-        userId,
-        entryCount: result.data?.length || 0
-      });
-
-      return result.data || [];
     } catch (error) {
-      logger.error('Error searching AI chat history by user ID via OSDK', {
+      logger.error('OSDK search failed, falling back to REST API', {
         userId,
-        error: error.message,
-        stack: error.stack
+        error: error.message
       });
 
-      throw error;
+      try {
+        return await this.searchByUserIdViaREST(userId, options);
+      } catch (restError) {
+        logger.error('Both OSDK and REST API search approaches failed', {
+          userId,
+          osdkError: error.message,
+          restError: restError.message
+        });
+        throw restError;
+      }
     }
+  }
+
+  /**
+   * Search chat history by user ID using direct REST API calls
+   */
+  async searchByUserIdViaREST(userId, options = {}) {
+    const {
+      pageSize = 30,
+      select,
+      includeRid = false
+    } = options;
+
+    const foundryHost = process.env.FOUNDRY_HOST || 'https://atlasengine.palantirfoundry.com';
+    const token = await this.getFoundryAccessToken();
+    
+    const searchUrl = `${foundryHost}/api/v2/ontologies/${this.ontologyRid}/objects/${this.objectType}/search`;
+    
+    logger.info('Searching AI chat history via REST API', {
+      searchUrl: searchUrl.replace(foundryHost, '[FOUNDRY_HOST]'),
+      userId,
+      pageSize
+    });
+
+    const requestBody = {
+      where: {
+        field: 'userId',
+        type: 'eq',
+        value: userId
+      },
+      pageSize,
+      select: select || ['chatId', 'transcript', 'userId', 'timestamp'],
+      includeRid
+    };
+
+    const response = await fetch(searchUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error('Foundry REST API search failed', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText,
+        userId
+      });
+      throw new Error(`Foundry search API error: ${response.status} - ${errorText}`);
+    }
+
+    const result = await response.json();
+    
+    logger.info('Successfully searched AI chat history via REST API', {
+      userId,
+      entryCount: result.data?.length || 0
+    });
+
+    return result.data || [];
   }
 }
 
