@@ -5,7 +5,7 @@ import { createConfidentialOauthClient } from '@osdk/oauth';
 // Import generated SDK object types
 // Note: These imports will only work after running 'npm install' with FOUNDRY_TOKEN set
 let A, FastenClinicalNotes, AiChatHistoryProduction, AtlasIntraencounterProduction;
-let Actions, Objects;
+let Actions, Objects, Queries;
 try {
     const sdk = await import('@atlas-dev/sdk');
     A = sdk.A;
@@ -14,6 +14,7 @@ try {
     AtlasIntraencounterProduction = sdk.AtlasIntraencounterProduction;
     Actions = sdk.$Actions;
     Objects = sdk.$Objects;
+    Queries = sdk.$Queries;
     console.log('✅ Successfully imported @atlas-dev/sdk object types');
 } catch (error) {
     console.warn('⚠️ Could not import @atlas-dev/sdk:', error.message);
@@ -25,6 +26,7 @@ try {
     AtlasIntraencounterProduction = undefined;
     Actions = undefined;
     Objects = undefined;
+    Queries = undefined;
 }
 
 dotenv.config();
@@ -177,13 +179,48 @@ if (bypassInitialization) {
             return undefined;
         };
 
+        const resolveQueryDefinition = (queryType) => {
+            if (queryType && typeof queryType === 'object' && queryType.type === 'query') {
+                return queryType;
+            }
+
+            if (typeof queryType === 'string' && Queries) {
+                const candidates = [
+                    queryType,
+                    queryType.replace(/-/g, ''),
+                    hyphenToCamel(queryType),
+                    hyphenToCamel(queryType.replace(/\./g, '-'))
+                ];
+
+                for (const candidate of candidates) {
+                    if (Queries[candidate]) {
+                        return Queries[candidate];
+                    }
+
+                    const lowerCamel = candidate.charAt(0).toLowerCase() + candidate.slice(1);
+                    if (Queries[lowerCamel]) {
+                        return Queries[lowerCamel];
+                    }
+
+                    const upperCamel = candidate.charAt(0).toUpperCase() + candidate.slice(1);
+                    if (Queries[upperCamel]) {
+                        return Queries[upperCamel];
+                    }
+                }
+            }
+
+            return undefined;
+        };
+
         // OSDK v2 returns a function - wrap it to provide both direct call and legacy .ontology() method
         if (baseClient && typeof baseClient === 'function') {
             // Create a wrapper that provides both patterns:
             // 1. Direct call: client(ObjectType).fetchPage() - OSDK v2 pattern
             // 2. Legacy: client.ontology(rid).objects(type) - for backward compatibility
             const wrappedClient = (input) => {
-                const resolved = resolveObjectDefinition(input) || resolveActionDefinition(input);
+                const resolved = resolveObjectDefinition(input) 
+                    || resolveActionDefinition(input) 
+                    || resolveQueryDefinition(input);
 
                 if (!resolved) {
                     throw new Error(`Unable to resolve OSDK definition for input: ${String(input)}`);
@@ -215,6 +252,13 @@ if (bypassInitialization) {
                         const definition = resolveActionDefinition(actionType);
                         if (!definition) {
                             throw new Error(`OSDK action definition not found for '${String(actionType)}'. Run npm install with FOUNDRY_TOKEN to generate SDK.`);
+                        }
+                        return baseClient(definition);
+                    },
+                    query: (queryType) => {
+                        const definition = resolveQueryDefinition(queryType);
+                        if (!definition) {
+                            throw new Error(`OSDK query definition not found for '${String(queryType)}'. Run npm install with FOUNDRY_TOKEN to generate SDK.`);
                         }
                         return baseClient(definition);
                     }
@@ -274,5 +318,6 @@ export {
     AiChatHistoryProduction,        // AiChatHistoryProduction object type
     AtlasIntraencounterProduction,  // AtlasIntraencounterProduction object type
     Actions as osdkActions,
-    Objects as osdkObjects
+    Objects as osdkObjects,
+    Queries as osdkQueries
 };
