@@ -31,7 +31,7 @@ router.post('/', async (req, res, next) => {
   try {
     const correlationId = req.correlationId;
     const resolvedAuth0Id = resolveAuth0Identifier(req);
-    const { frontendInput, auth0Id: bodyAuth0Id } = req.body || {};
+    const { chartReview, auth0Id: bodyAuth0Id } = req.body || {};
 
     const trimmedBodyAuth0Id = typeof bodyAuth0Id === 'string' ? bodyAuth0Id.trim() : '';
     const effectiveAuth0Id = resolvedAuth0Id ?? (isAuth0Identifier(trimmedBodyAuth0Id) ? trimmedBodyAuth0Id : null);
@@ -47,11 +47,11 @@ router.post('/', async (req, res, next) => {
       });
     }
 
-    if (!frontendInput || typeof frontendInput !== 'string' || frontendInput.trim().length === 0) {
+    if (!chartReview || typeof chartReview !== 'string' || chartReview.trim().length === 0) {
       return res.status(400).json({
         error: {
           code: 'INVALID_REQUEST',
-          message: 'frontendInput must not be empty',
+          message: 'chartReview must not be empty',
           correlationId,
           timestamp: new Date().toISOString()
         }
@@ -66,7 +66,7 @@ router.post('/', async (req, res, next) => {
 
     const explanation = await arcExplainService.explain({
       auth0Id: effectiveAuth0Id,
-      frontendInput,
+      chartReview,
       correlationId
     });
 

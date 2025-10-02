@@ -49,14 +49,14 @@ describe('Arc Explains API', () => {
     const response = await request(app)
       .post('/api/v1/foundry/arc-explains')
       .send({
-        frontendInput: ' Procedure details here ',
+        chartReview: ' Procedure details here ',
         auth0Id: 'auth0|user-override'
       })
       .expect(200);
 
     expect(explainSpy).toHaveBeenCalledWith({
       auth0Id: 'auth0|user-123',
-      frontendInput: ' Procedure details here ',
+      chartReview: ' Procedure details here ',
       correlationId: 'test-correlation-id'
     });
 
@@ -66,7 +66,7 @@ describe('Arc Explains API', () => {
     });
   });
 
-  it('returns 400 when frontendInput missing', async () => {
+  it('returns 400 when chartReview missing', async () => {
     const explainSpy = jest.spyOn(ArcExplainService.prototype, 'explain');
 
     const app = createApp({
@@ -97,7 +97,7 @@ describe('Arc Explains API', () => {
 
     const response = await request(app)
       .post('/api/v1/foundry/arc-explains')
-      .send({ frontendInput: 'Some text' })
+      .send({ chartReview: 'Some text' })
       .expect(400);
 
     expect(explainSpy).not.toHaveBeenCalled();

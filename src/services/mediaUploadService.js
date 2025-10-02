@@ -155,16 +155,31 @@ export class MediaUploadService {
     // Get authentication token via direct REST API
     const token = await this.getFoundryToken();
 
-    // Use the MediaReference directly as returned from the upload endpoint
-    // The ontology media upload endpoint returns a properly formatted MediaReference
-    // that includes both the reference object and mimeType
-    const audiofileRef = params.audiofile;
+    // Extract the RID string from the MediaReference object
+    // Foundry expects just the RID string, not the {$rid: "..."} wrapper
+    let audiofileRid = params.audiofile;
+    
+    // If audiofile is an object with $rid property, extract the string value
+    if (audiofileRid && typeof audiofileRid === 'object') {
+      if (audiofileRid.$rid) {
+        audiofileRid = audiofileRid.$rid;
+      } else if (audiofileRid.rid) {
+        audiofileRid = audiofileRid.rid;
+      }
+    }
+    
+    logger.info('MediaUploadService: Extracted audiofile RID for action', {
+      originalType: typeof params.audiofile,
+      originalKeys: params.audiofile && typeof params.audiofile === 'object' ? Object.keys(params.audiofile) : [],
+      extractedRid: audiofileRid,
+      userId: params.user_id
+    });
 
     const requestBody = {
       parameters: {
         timestamp: params.timestamp || new Date().toISOString(),
         user_id: params.user_id,
-        audiofile: audiofileRef, // MediaReference from ontology upload endpoint
+        audiofile: audiofileRid, // Just the RID string
         transcript: params.transcript,
         location: params.location || '',
         provider_name: params.provider_name || '',
@@ -189,11 +204,10 @@ export class MediaUploadService {
         actionId: candidate,
         ontologyApiName: this.ontologyApiName,
         userId: params.user_id,
-        hasAudiofile: !!params.audiofile,
+        hasAudiofile: !!audiofileRid,
         hasTranscript: !!params.transcript,
-        audiofileFormat: typeof params.audiofile,
-        summaryLength: (params.llm_summary || '').length,
-        audiofileKeys: params.audiofile ? Object.keys(params.audiofile) : []
+        audiofileRid: audiofileRid,
+        summaryLength: (params.llm_summary || '').length
       });
 
       try {

@@ -38,22 +38,22 @@ export class ArcExplainService {
       || this.foundryService.getApiOntologyRid();
   }
 
-  async explain({ auth0Id, frontendInput, correlationId }) {
+  async explain({ auth0Id, chartReview, correlationId }) {
     if (!auth0Id || typeof auth0Id !== 'string' || auth0Id.trim().length === 0) {
       const error = new Error('auth0Id is required');
       error.status = 400;
       throw error;
     }
 
-    if (!frontendInput || typeof frontendInput !== 'string' || frontendInput.trim().length === 0) {
-      const error = new Error('frontendInput must not be empty');
+    if (!chartReview || typeof chartReview !== 'string' || chartReview.trim().length === 0) {
+      const error = new Error('chartReview must not be empty');
       error.status = 400;
       throw error;
     }
 
     const payload = {
       auth0Id: auth0Id.trim(),
-      frontendInput: frontendInput.trim()
+      chartReview: chartReview.trim()
     };
 
     // Attempt the OSDK client path first when available.
