@@ -155,23 +155,28 @@ export class MediaUploadService {
     // Get authentication token via direct REST API
     const token = await this.getFoundryToken();
 
-    // Extract the RID string from the MediaReference object
-    // Foundry expects just the RID string, not the {$rid: "..."} wrapper
-    let audiofileRid = params.audiofile;
-    
-    // If audiofile is an object with $rid property, extract the string value
-    if (audiofileRid && typeof audiofileRid === 'object') {
-      if (audiofileRid.$rid) {
-        audiofileRid = audiofileRid.$rid;
-      } else if (audiofileRid.rid) {
-        audiofileRid = audiofileRid.rid;
+    // Normalize audiofile to a proper MediaReference object if needed
+    // Foundry expects a MediaReference object, not a plain RID string
+    let normalizedAudiofile = params.audiofile;
+    if (typeof normalizedAudiofile === 'string' && normalizedAudiofile.startsWith('ri.')) {
+      normalizedAudiofile = { $rid: normalizedAudiofile };
+    } else if (normalizedAudiofile && typeof normalizedAudiofile === 'object') {
+      if (normalizedAudiofile.rid && !normalizedAudiofile.$rid) {
+        normalizedAudiofile.$rid = normalizedAudiofile.rid;
+      }
+      if (normalizedAudiofile.mediaRid && !normalizedAudiofile.$rid) {
+        normalizedAudiofile.$rid = normalizedAudiofile.mediaRid;
+      }
+      if (normalizedAudiofile.reference && typeof normalizedAudiofile.reference === 'object') {
+        const ref = normalizedAudiofile.reference;
+        if (ref.rid && !ref.$rid) { ref.$rid = ref.rid; }
       }
     }
-    
-    logger.info('MediaUploadService: Extracted audiofile RID for action', {
+
+    logger.info('MediaUploadService: Normalized audiofile for action', {
       originalType: typeof params.audiofile,
       originalKeys: params.audiofile && typeof params.audiofile === 'object' ? Object.keys(params.audiofile) : [],
-      extractedRid: audiofileRid,
+      hasRid: Boolean(normalizedAudiofile && typeof normalizedAudiofile === 'object' && (normalizedAudiofile.$rid || normalizedAudiofile.rid)),
       userId: params.user_id
     });
 
@@ -179,7 +184,7 @@ export class MediaUploadService {
       parameters: {
         timestamp: params.timestamp || new Date().toISOString(),
         user_id: params.user_id,
-        audiofile: audiofileRid, // Just the RID string
+        audiofile: normalizedAudiofile, // Proper MediaReference object
         transcript: params.transcript,
         location: params.location || '',
         provider_name: params.provider_name || '',
@@ -204,9 +209,9 @@ export class MediaUploadService {
         actionId: candidate,
         ontologyApiName: this.ontologyApiName,
         userId: params.user_id,
-        hasAudiofile: !!audiofileRid,
+        hasAudiofile: !!normalizedAudiofile,
         hasTranscript: !!params.transcript,
-        audiofileRid: audiofileRid,
+        audiofileRid: (normalizedAudiofile && typeof normalizedAudiofile === 'object') ? (normalizedAudiofile.$rid || normalizedAudiofile.rid) : normalizedAudiofile,
         summaryLength: (params.llm_summary || '').length
       });
 
